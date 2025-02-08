@@ -1,0 +1,38 @@
+[project]
+name = "tools"
+version = "0.1.0"
+description = "Dev tools for the morton library"
+authors = [
+    {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mkdocs (>=1.6.1,<2.0.0)",
+    "mkdocs-material (>=9.5.50,<10.0.0)",
+    "mkdocs-material-extensions (>=1.3.1,<2.0.0)",
+    "mkdocs-redirects (>=1.2.2,<2.0.0)",
+    "black (>=24.10.0,<25.0.0)",
+    "mypy (>=1.14.1,<2.0.0)",
+    "pylint (>=3.3.3,<4.0.0)",
+    "flake8 (>=7.1.1,<8.0.0)",
+    "pep8 (>=1.7.1,<2.0.0)",
+    "jedi (>=0.19.2,<0.20.0)",
+    "markdown (>=3.7,<4.0)",
+    "markdown-include (>=0.8.1,<0.9.0)",
+    "pymdown-extensions (>=10.14.1,<11.0.0)",
+    "plantuml (>=0.3.0,<0.4.0)",
+    "plantuml-markdown (>=3.10.4,<4.0.0)",
+    "htmlmin (>=0.1.12,<0.2.0)",
+    "mkdocs-minify-plugin (>=0.8.0,<0.9.0)",
+    "mkdocs-simple-hooks (>=0.1.5,<0.2.0)"
+]
+
+[project.scripts]
+make-user-presets = "tools:make_user_presets"
+run-user-workflows = "tools:run_user_workflows"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
