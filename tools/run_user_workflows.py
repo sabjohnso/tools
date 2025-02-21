@@ -59,9 +59,7 @@ def make_command_line_parser(prog):
 def run(config):
     workflow_names = get_workflow_names(config)
     for workflow_name in workflow_names:
-        subprocess.run(
-            ["cmake", "--workflow", "--preset", workflow_name], check=True
-        )
+        subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
 
 
 def get_workflow_names(config):
@@ -82,18 +80,14 @@ def filter_workflow_names(config, all_workflow_names):
         workflow_names = [
             workflow_name
             for workflow_name in workflow_names
-            if not isinstance(
-                re.search(config.exclude, workflow_name), re.Match
-            )
+            if not isinstance(re.search(config.exclude, workflow_name), re.Match)
         ]
     return workflow_names
 
 
 def get_all_workflow_names(config):
     workflow_presets = get_workflow_presets(config)
-    workflow_names = [
-        workflow_preset["name"] for workflow_preset in workflow_presets
-    ]
+    workflow_names = [workflow_preset["name"] for workflow_preset in workflow_presets]
     return workflow_names
 
 
