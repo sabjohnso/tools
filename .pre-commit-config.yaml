@@ -1,6 +1,31 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  # v5.0.0
+  rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b
+  hooks:
+    - id: trailing-whitespace
+    - id: check-ast
+    - id: check-case-conflict
+    - id: check-docstring-first
+    - id: check-merge-conflict
+    - id: check-shebang-scripts-are-executable
+    - id: check-symlinks
+    - id: check-vcs-permalinks
+    - id: check-json
+    - id: check-toml
+    - id: check-xml
+    - id: check-yaml
+    - id: debug-statements
+    - id: destroyed-symlinks
+    - id: detect-private-key
+    - id: end-of-file-fixer
+    - id: fix-byte-order-marker
+    - id: mixed-line-ending
+      args: [ --fix=lf ]
+    - id: trailing-whitespace
+    # -   id: ...
   #efa716b1aab63601b256afc0cda469f0f7606759
 - repo: https://github.com/astral-sh/ruff-pre-commit
   # Ruff version.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# pylint: disable=missing-module-docstring
+# pylint: disable=missing-function-docstring
 import sys
 import json
 from argparse import ArgumentParser
@@ -6,12 +8,16 @@ from pathlib import Path
 
 
 def main(args):
-    config = process_command_line(args)
-    return run(config)
+    try:
+        config = process_command_line(args)
+        return run(config)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(e, file=sys.stderr)
+        return 1
 
 
 def process_command_line(args):
-    parser = make_command_line_parser(args[0])
+    parser = make_command_line_parser(Path(args[0]).name)
     config = parser.parse_args(args[1:])
     validate_input(config)
     return config
@@ -170,7 +176,6 @@ def make_configure_preset(config, compiler):
         "inherits": "default",
         "hidden": False,
         "binaryDir": binary_directory(config, compiler),
-        "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"},
         "environment": (
             {
                 "PATH": f"{compiler['root']}/bin:" + "$penv{PATH}",

@@ -1,13 +1,13 @@
 [project]
 name = "tools"
 version = "0.1.0"
-description = "Dev tools for the morton library"
+description = "Dev tools for a variety of libraries"
 authors = [
     {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "mkdocs (>=1.6.1,<2.0.0)",
     "mkdocs-material (>=9.5.50,<10.0.0)",
@@ -27,8 +27,13 @@ dependencies = [
     "htmlmin (>=0.1.12,<0.2.0)",
     "mkdocs-minify-plugin (>=0.8.0,<0.9.0)",
     "mkdocs-simple-hooks (>=0.1.5,<0.2.0)",
-    "pre-commit (>=4.1.0,<5.0.0)"
+    "pre-commit (>=4.1.0,<5.0.0)",
+    "ipython (>=9.3.0,<10.0.0)",
+    "jsonschema (>=4.24.0,<5.0.0)",
+    "types-jsonschema (>=4.24.0.20250528,<5.0.0.0)"
 ]
+packages=[{include = "tools"}]
+
 
 [project.scripts]
 make-user-presets = "tools:make_user_presets"
@@ -39,3 +44,12 @@ format-cxx-files = "tools:format_cxx_files"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+ruff = "^0.12.3"
+
+
+[tool.ruff]
+line-length=88

@@ -1,5 +1,9 @@
-"""Build the documentation for morton library"""
+#!/usr/bin/env python
 
 
-def main(args):
+def start():
     pass
+
+
+if __name__ == "__main__":
+    start()

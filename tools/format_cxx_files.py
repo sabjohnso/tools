@@ -5,7 +5,7 @@ import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
 
-CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".hpp", ".hxx", ".ixx"]
+CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".C", ".hpp", ".hxx", ".ixx"]
 
 
 def main(args):
