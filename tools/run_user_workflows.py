@@ -14,10 +14,8 @@ def main(args):
         config = process_command_line(args)
         run(config)
         return 0
-    except Exception as e:
-        print(type(e), sys.stderr)
-        print(e, sys.stderr)
-        return 1
+    except subprocess.CalledProcessError as e:
+        return e.returncode
 
 
 def process_command_line(args):
