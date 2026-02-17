@@ -1,3 +1,5 @@
+"""Tests for the CMake user presets generator."""
+
 from types import SimpleNamespace
 from unittest.mock import patch
 

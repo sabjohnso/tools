@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""Run CMake user workflow presets."""
+
 import sys
 import json
 import re
@@ -55,18 +57,21 @@ def make_command_line_parser(prog):
 
 
 def run(config):
+    """Execute each matching workflow preset via cmake."""
     workflow_names = get_workflow_names(config)
     for workflow_name in workflow_names:
         subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
 
 
 def get_workflow_names(config):
+    """Return the filtered list of workflow preset names."""
     all_workflow_names = get_all_workflow_names(config)
     workflow_names = filter_workflow_names(config, all_workflow_names)
     return workflow_names
 
 
 def filter_workflow_names(config, all_workflow_names):
+    """Filter workflow names by matching and exclusion patterns."""
     workflow_names = all_workflow_names
     if config.matching:
         workflow_names = [
@@ -84,17 +89,20 @@ def filter_workflow_names(config, all_workflow_names):
 
 
 def get_all_workflow_names(config):
+    """Return all workflow preset names from the user presets file."""
     workflow_presets = get_workflow_presets(config)
     workflow_names = [workflow_preset["name"] for workflow_preset in workflow_presets]
     return workflow_names
 
 
 def get_workflow_presets(config):
+    """Return the workflow presets from the user presets file."""
     user_presets = get_user_presets(config)
     return user_presets["workflowPresets"]
 
 
 def get_user_presets(config):
+    """Load and return the user presets from disk."""
     with open(config.input_path, "r", encoding="utf-8") as inp:
         user_presets = json.load(inp)
     return user_presets

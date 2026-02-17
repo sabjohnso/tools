@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+"""Generate CMakeUserPresets.json from a compiler specification file."""
+
 import sys
 import json
 import importlib.resources
@@ -9,6 +11,7 @@ import jsonschema
 
 
 def main(args):
+    """Run the preset generator and return 0 on success."""
     try:
         config = process_command_line(args)
         run(config)
@@ -19,6 +22,7 @@ def main(args):
 
 
 def process_command_line(args):
+    """Process the command line arguments and return the runtime configuration."""
     parser = make_command_line_parser(Path(args[0]).name)
     config = parser.parse_args(args[1:])
     validate_input(config)
@@ -26,6 +30,7 @@ def process_command_line(args):
 
 
 def make_command_line_parser(prog):
+    """Return the command line parser."""
     parser = ArgumentParser(prog=prog)
     parser.add_argument("filename", type=Path)
     parser.add_argument(
@@ -70,6 +75,7 @@ def make_command_line_parser(prog):
 
 
 def validate_input(config):
+    """Validate that the input file exists and the output file is writable."""
     if not config.filename.exists():
         raise RuntimeError(MISSING_INPUT_ERROR.format(input_file=config.filename))
     if (
@@ -81,6 +87,7 @@ def validate_input(config):
 
 
 def run(config):
+    """Read, validate, transform, and write the user presets."""
     input_data = read_input_data(config)
     validate_schema(input_data)
     output_data = make_output_data(config, input_data)
@@ -88,17 +95,20 @@ def run(config):
 
 
 def validate_schema(input_data):
+    """Validate the input data against the compiler JSON schema."""
     schema_file = importlib.resources.files("tools").joinpath("compilers.schema.json")
     schema = json.loads(schema_file.read_text(encoding="utf-8"))
     jsonschema.validate(input_data, schema)
 
 
 def read_input_data(config):
+    """Read and return the JSON input data from disk."""
     with open(config.filename, "r", encoding="utf-8") as inp:
         return json.load(inp)
 
 
 def write_output_data(config, output_data):
+    """Write the output data to a file or stdout."""
     if config.stdout:
         print(json.dumps(output_data))
     else:
@@ -107,6 +117,7 @@ def write_output_data(config, output_data):
 
 
 def make_output_data(config, input_data):
+    """Assemble the complete CMakeUserPresets output structure."""
     return {
         "version": 6,
         "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
@@ -118,10 +129,12 @@ def make_output_data(config, input_data):
 
 
 def make_configure_presets(config, input_data):
+    """Return configure presets for all compilers."""
     return [make_configure_preset(config, compiler) for compiler in input_data]
 
 
 def make_build_presets(config, input_data):
+    """Return build presets for all compilers and build types."""
     return (
         [{"name": "baseBuild", "jobs": 16, "configurePreset": "default"}]
         + [
@@ -140,6 +153,7 @@ def make_build_presets(config, input_data):
 
 
 def make_build_preset(workflow_name, suffix, configuration):
+    """Return a single build preset for the given name and configuration."""
     return {
         "name": workflow_name + suffix,
         "inherits": "baseBuild",
@@ -149,6 +163,7 @@ def make_build_preset(workflow_name, suffix, configuration):
 
 
 def make_test_presets(config, input_data):
+    """Return test presets for all compilers and build types."""
     return (
         [
             {
@@ -171,6 +186,7 @@ def make_test_presets(config, input_data):
 
 
 def make_test_preset(workflow_name, suffix, configuration):
+    """Return a single test preset for the given name and configuration."""
     return {
         "name": workflow_name + suffix,
         "inherits": "baseTest",
@@ -180,6 +196,7 @@ def make_test_preset(workflow_name, suffix, configuration):
 
 
 def make_configure_preset(config, compiler):
+    """Return a single configure preset for the given compiler."""
     return {
         "name": compiler["name"],
         "inherits": "default",
@@ -206,6 +223,7 @@ def make_configure_preset(config, compiler):
 
 
 def make_workflow_presets(config, input_data):
+    """Return workflow presets for all compilers and build types."""
     return (
         [make_workflow_preset(compiler["name"], "") for compiler in input_data]
         + [make_workflow_preset(compiler["name"], "-devel") for compiler in input_data]
@@ -214,6 +232,7 @@ def make_workflow_presets(config, input_data):
 
 
 def make_workflow_preset(workflow_name, suffix):
+    """Return a single workflow preset for the given name and suffix."""
     return {
         "name": workflow_name + suffix,
         "steps": [
@@ -225,6 +244,7 @@ def make_workflow_preset(workflow_name, suffix):
 
 
 def binary_directory(config, compiler):
+    """Return the build directory path for the given compiler."""
     return "${sourceDir}/build" + (
         "-" + compiler["name"] if not config.shared_build_directory else ""
     )
