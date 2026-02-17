@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import sys
-import os
 import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
@@ -9,9 +8,12 @@ CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".C", ".hpp", ".hxx", ".ixx"]
 
 
 def main(args):
-    config = process_command_line(args)
-    run(config)
-    return 0
+    try:
+        config = process_command_line(args)
+        run(config)
+        return 0
+    except subprocess.CalledProcessError as e:
+        return e.returncode
 
 
 def process_command_line(args):
@@ -20,9 +22,9 @@ def process_command_line(args):
     return config
 
 
-def make_command_line_parser(args):
+def make_command_line_parser(prog):
     parser = ArgumentParser(
-        prog=args[0],
+        prog=prog,
         description="""
         Format C++ source files according to .clang-format
         """,
@@ -34,7 +36,10 @@ def make_command_line_parser(args):
         help="Path to the toplevel directory of the source tree",
     )
     parser.add_argument(
-        "--clang-format", type=Path, help="Path to the clang-format executable"
+        "--clang-format",
+        type=Path,
+        default=Path("clang-format"),
+        help="Path to the clang-format executable",
     )
     return parser
 
@@ -45,13 +50,9 @@ def run(config):
 
 
 def get_source_files(config):
-    os.chdir(config.source_tree)
-    cwd = Path.cwd()
     source_files = []
     for extension in CXX_EXTENSIONS:
-        source_files += list(cwd.rglob(f"**/*{extension}")) + list(
-            cwd.rglob(f"*{extension}")
-        )
+        source_files += list(config.source_tree.rglob(f"*{extension}"))
     return source_files
 
 

@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-# pylint: disable=missing-module-docstring
-# pylint: disable=missing-function-docstring
 import sys
 import json
 from argparse import ArgumentParser
@@ -10,8 +8,9 @@ from pathlib import Path
 def main(args):
     try:
         config = process_command_line(args)
-        return run(config)
-    except Exception as e:  # pylint: disable=broad-exception-caught
+        run(config)
+        return 0
+    except Exception as e:
         print(e, file=sys.stderr)
         return 1
 
@@ -183,7 +182,7 @@ def make_configure_preset(config, compiler):
                 + "$penv{LIBRARY_PATH}",
                 "LD_LIBRARY_PATH": f"{compiler['root']}/lib:{compiler['root']}/lib64:"
                 + "$penv{LIBRARY_PATH}",
-                "CPATH": f"{compiler['root']}/include" + "$penv{CPATH}",
+                "CPATH": f"{compiler['root']}/include:" + "$penv{CPATH}",
                 "CC": compiler["cc"],
                 "CXX": compiler["cxx"],
             }
@@ -213,14 +212,6 @@ def make_workflow_preset(workflow_name, suffix):
             {"type": "test", "name": workflow_name + suffix},
         ],
     }
-
-
-def devel_binary_directory(config, compiler):
-    return (
-        binary_directory(config, compiler) + "-devel"
-        if not config.shared_devel_build_directory
-        else ""
-    )
 
 
 def binary_directory(config, compiler):

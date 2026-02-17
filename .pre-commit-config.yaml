@@ -24,8 +24,6 @@ repos:
     - id: fix-byte-order-marker
     - id: mixed-line-ending
       args: [ --fix=lf ]
-    - id: trailing-whitespace
-    # -   id: ...
   #efa716b1aab63601b256afc0cda469f0f7606759
 - repo: https://github.com/astral-sh/ruff-pre-commit
   # Ruff version.
