@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Compiler Descriptors",
+    "description": "A list of compiler installations used to generate CMake user presets.",
+    "type": "array",
+    "minItems": 1,
+    "items": { "$ref": "#/$defs/compiler" },
+    "$defs": {
+        "compiler": {
+            "title": "Compiler",
+            "description": "A single compiler installation with its name, location, and executables.",
+            "type": "object",
+            "required": ["name", "root", "cc", "cxx"],
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "title": "Preset Name",
+                    "description": "Identifier used as the CMake preset name."
+                },
+                "root": {
+                    "type": "string",
+                    "title": "Installation Root",
+                    "description": "Absolute path to the compiler installation directory."
+                },
+                "cc": {
+                    "type": "string",
+                    "title": "C Compiler",
+                    "description": "Name or relative path of the C compiler executable."
+                },
+                "cxx": {
+                    "type": "string",
+                    "title": "C++ Compiler",
+                    "description": "Name or relative path of the C++ compiler executable."
+                },
+                "addPaths": {
+                    "type": "boolean",
+                    "default": false,
+                    "title": "Add to Environment Paths",
+                    "description": "When true, adds the compiler's bin, lib, and include directories to PATH, LIBRARY_PATH, LD_LIBRARY_PATH, and CPATH."
+                }
+            }
+        }
+    }
+}

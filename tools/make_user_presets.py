@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 import sys
 import json
+import importlib.resources
 from argparse import ArgumentParser
 from pathlib import Path
+
+import jsonschema
 
 
 def main(args):
@@ -79,8 +82,15 @@ def validate_input(config):
 
 def run(config):
     input_data = read_input_data(config)
+    validate_schema(input_data)
     output_data = make_output_data(config, input_data)
     write_output_data(config, output_data)
+
+
+def validate_schema(input_data):
+    schema_file = importlib.resources.files("tools").joinpath("compilers.schema.json")
+    schema = json.loads(schema_file.read_text(encoding="utf-8"))
+    jsonschema.validate(input_data, schema)
 
 
 def read_input_data(config):

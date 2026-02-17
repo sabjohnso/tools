@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tools.make_user_presets import main, make_configure_preset
+import pytest
+from jsonschema import ValidationError
+
+from tools.make_user_presets import main, make_configure_preset, validate_schema
 
 
 def _compiler_with_add_paths():
@@ -30,3 +33,32 @@ def test_main_returns_zero_on_success():
     with patch("tools.make_user_presets.run"):
         result = main(["make-user-presets", "/dev/null"])
     assert result == 0
+
+
+def _valid_compiler():
+    return {"name": "gcc-14", "root": "/usr/local/gcc-14", "cc": "gcc", "cxx": "g++"}
+
+
+def test_valid_input_passes_validation():
+    validate_schema([_valid_compiler()])
+
+
+def test_missing_required_key_raises():
+    compiler = _valid_compiler()
+    del compiler["cc"]
+    with pytest.raises(ValidationError):
+        validate_schema([compiler])
+
+
+def test_wrong_type_raises():
+    compiler = _valid_compiler()
+    compiler["name"] = 42
+    with pytest.raises(ValidationError):
+        validate_schema([compiler])
+
+
+def test_unknown_key_raises():
+    compiler = _valid_compiler()
+    compiler["nme"] = "typo"
+    with pytest.raises(ValidationError):
+        validate_schema([compiler])
