@@ -30,7 +30,10 @@ def test_cpath_has_separator_before_penv():
 
 
 def test_main_returns_zero_on_success():
-    with patch("tools.make_user_presets.run"):
+    with (
+        patch("tools.make_user_presets.validate_input"),
+        patch("tools.make_user_presets.run"),
+    ):
         result = main(["make-user-presets", "/dev/null"])
     assert result == 0
 
