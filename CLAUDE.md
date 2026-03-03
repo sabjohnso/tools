@@ -1,23 +1,25 @@
 # Project: Dev Tools
 
 Command-line utilities for managing CMake-based C++ project builds.
-Four entry points: `make-user-presets`, `run-user-workflows`, `format-cxx-files`, `clear-cmake-cache`.
+Five entry points: `make-user-presets`, `run-user-workflows`, `format-cxx-files`, `clear-cmake-cache`, `set-cmake-variable`.
 
 ## Project structure
 
 ```
 tools/                  # Main package
-  __init__.py           # Entry points for all four CLI tools
+  __init__.py           # Entry points for all five CLI tools
   make_user_presets.py  # Generate CMakeUserPresets.json from compiler specs
   run_user_workflows.py # Execute CMake workflow presets
   format_cxx_files.py   # Format C++ sources with clang-format
   clear_cmake_cache.py  # Clear CMakeCache.txt from workflow build directories
+  set_cmake_variable.py # Set CMake variables in workflow build directories
   build_documentation.py # Documentation builder (stub)
   compilers.schema.json # JSON Schema for compiler input validation
 test/                   # Tests (pytest)
   test_make_user_presets.py
   test_format_cxx_files.py
   test_clear_cmake_cache.py
+  test_set_cmake_variable.py
 ```
 
 ## Build and test
