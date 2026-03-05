@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 from argparse import ArgumentParser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -28,7 +29,7 @@ def process_command_line(args):
 
 
 def make_command_line_parser(prog):
-    """Return the command line parser"""
+    """Return the command line parser."""
     parser = ArgumentParser(prog=prog)
     parser.add_argument(
         "--input-path",
@@ -51,13 +52,54 @@ def make_command_line_parser(prog):
         default=None,
         help="A regular expression matching workflow presets to exclude",
     )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        help="Number of workflows to run in parallel (default: 1)",
+    )
     return parser
 
 
 def run(config):
+    """Run workflows sequentially or in parallel based on config.jobs."""
     workflow_names = get_workflow_names(config)
+    if config.jobs <= 1:
+        run_sequential(workflow_names)
+    else:
+        run_parallel(workflow_names, config.jobs)
+
+
+def run_sequential(workflow_names):
+    """Run workflows one at a time with direct output."""
     for workflow_name in workflow_names:
         subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
+
+
+def run_parallel(workflow_names, jobs):
+    """Run workflows in parallel, displaying output as each completes."""
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = {
+            executor.submit(run_one_workflow, name): name for name in workflow_names
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            result = future.result()
+            print(f"--- {name} ---")
+            if result.stdout:
+                print(result.stdout, end="")
+
+
+def run_one_workflow(workflow_name):
+    """Run a single workflow, capturing its output."""
+    return subprocess.run(
+        ["cmake", "--workflow", "--preset", workflow_name],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
 
 
 def get_workflow_names(config):
