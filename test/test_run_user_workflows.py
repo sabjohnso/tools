@@ -3,9 +3,11 @@
 import json
 import tempfile
 from pathlib import Path
+import threading
 from unittest.mock import patch, MagicMock
 
 from tools.run_user_workflows import (
+    group_workflows_by_configure_preset,
     main,
     make_command_line_parser,
     process_command_line,
@@ -80,6 +82,32 @@ def test_run_sequential_calls_cmake_for_each_workflow(mock_run):
         )
 
 
+# --- workflow grouping ---
+
+
+def test_group_workflows_groups_by_configure_preset():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        groups = group_workflows_by_configure_preset(
+            path, ["gcc-14", "gcc-14-devel", "clang-18"]
+        )
+        assert groups == [["gcc-14", "gcc-14-devel"], ["clang-18"]]
+
+
+def test_group_workflows_preserves_order_within_group():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        groups = group_workflows_by_configure_preset(path, ["gcc-14-devel", "gcc-14"])
+        assert groups == [["gcc-14-devel", "gcc-14"]]
+
+
+def test_group_workflows_single_workflow():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        groups = group_workflows_by_configure_preset(path, ["clang-18"])
+        assert groups == [["clang-18"]]
+
+
 # --- parallel run (jobs > 1) ---
 
 
@@ -129,6 +157,43 @@ def test_run_sequential_does_not_capture_output(mock_run):
         mock_run.assert_called_once_with(
             ["cmake", "--workflow", "--preset", "gcc-14"], check=True
         )
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_run_parallel_does_not_run_same_preset_concurrently(mock_run):
+    """Workflows sharing a configure preset must not overlap in time."""
+    active = {}  # configure_preset -> count of concurrent runs
+    violations = []
+    lock = threading.Lock()
+
+    preset_for_workflow = {
+        "gcc-14": "gcc-14",
+        "gcc-14-devel": "gcc-14",
+        "clang-18": "clang-18",
+    }
+
+    def fake_run(cmd, **kwargs):
+        name = cmd[3]
+        preset = preset_for_workflow[name]
+        with lock:
+            active[preset] = active.get(preset, 0) + 1
+            if active[preset] > 1:
+                violations.append(f"{preset} had {active[preset]} concurrent runs")
+        import time
+
+        time.sleep(0.05)
+        with lock:
+            active[preset] -= 1
+        return MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+    mock_run.side_effect = fake_run
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        config = process_command_line(
+            ["run-user-workflows", "-i", str(path), "-j", "4"]
+        )
+        run(config)
+    assert violations == [], f"Concurrent violations: {violations}"
 
 
 @patch("tools.run_user_workflows.subprocess.run")

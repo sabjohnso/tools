@@ -68,7 +68,32 @@ def run(config):
     if config.jobs <= 1:
         run_sequential(workflow_names)
     else:
-        run_parallel(workflow_names, config.jobs)
+        groups = group_workflows_by_configure_preset(config.input_path, workflow_names)
+        run_parallel(groups, config.jobs)
+
+
+def group_workflows_by_configure_preset(input_path, workflow_names):
+    """Group workflow names by their configure preset, preserving order."""
+    with open(input_path, "r", encoding="utf-8") as inp:
+        user_presets = json.load(inp)
+    workflow_map = {wp["name"]: wp for wp in user_presets["workflowPresets"]}
+    groups = {}
+    group_order = []
+    for name in workflow_names:
+        configure_name = get_configure_step_name(workflow_map[name])
+        if configure_name not in groups:
+            groups[configure_name] = []
+            group_order.append(configure_name)
+        groups[configure_name].append(name)
+    return [groups[key] for key in group_order]
+
+
+def get_configure_step_name(workflow):
+    """Return the name of the configure step in a workflow."""
+    for step in workflow["steps"]:
+        if step["type"] == "configure":
+            return step["name"]
+    raise KeyError(f"No configure step in workflow: {workflow['name']}")
 
 
 def run_sequential(workflow_names):
@@ -77,29 +102,33 @@ def run_sequential(workflow_names):
         subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
 
 
-def run_parallel(workflow_names, jobs):
-    """Run workflows in parallel, displaying output as each completes."""
+def run_parallel(groups, jobs):
+    """Run workflow groups in parallel, workflows within a group sequentially."""
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         futures = {
-            executor.submit(run_one_workflow, name): name for name in workflow_names
+            executor.submit(run_workflow_group, group): group for group in groups
         }
         for future in as_completed(futures):
-            name = futures[future]
-            result = future.result()
-            print(f"--- {name} ---")
-            if result.stdout:
-                print(result.stdout, end="")
+            results = future.result()
+            for name, result in results:
+                print(f"--- {name} ---")
+                if result.stdout:
+                    print(result.stdout, end="")
 
 
-def run_one_workflow(workflow_name):
-    """Run a single workflow, capturing its output."""
-    return subprocess.run(
-        ["cmake", "--workflow", "--preset", workflow_name],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+def run_workflow_group(group):
+    """Run a group of workflows sequentially, capturing output."""
+    results = []
+    for workflow_name in group:
+        result = subprocess.run(
+            ["cmake", "--workflow", "--preset", workflow_name],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        results.append((workflow_name, result))
+    return results
 
 
 def get_workflow_names(config):
