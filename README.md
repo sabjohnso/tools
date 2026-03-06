@@ -1,43 +1,48 @@
 # Dev Tools
 
-A collection of command-line utilities for managing CMake-based C++ project
-builds. These tools automate the generation of CMake user presets, execution of
-build/test workflows, and source code formatting.
+Command-line utilities for managing CMake-based C++ project builds across
+multiple compilers and configurations.
 
-## Requirements
+## Overview
 
-- Python >= 3.12
-- [Poetry](https://python-poetry.org/) for dependency management
-- CMake >= 3.21 (for the generated presets)
-- clang-format (for C++ source formatting)
+Working with CMake presets across several compilers (GCC, Clang, etc.) and
+build types (Release, Debug, RelWithDebInfo) involves a lot of boilerplate.
+This toolkit automates the repetitive parts:
+
+1. **Define** your compilers in a simple JSON file.
+2. **Generate** a full `CMakeUserPresets.json` with configure, build, test,
+   and workflow presets for every compiler and build type.
+3. **Run** selected workflow presets with a single command.
+4. **Manage** build directories — clear caches or set CMake variables across
+   all of them at once.
+5. **Format** your C++ source files with clang-format.
 
 ## Installation
 
+Requires **Python 3.12+** and [Poetry](https://python-poetry.org/).
+
 ```bash
+git clone <repo-url>
+cd tools
 poetry install
 ```
 
-This installs three command-line tools into the Poetry virtual environment:
+This installs five commands into the Poetry virtual environment:
 
-| Command              | Description                                           |
-|----------------------|-------------------------------------------------------|
-| `make-user-presets`  | Generate `CMakeUserPresets.json` from a compiler list |
-| `run-user-workflows` | Execute CMake workflow presets                        |
-| `format-cxx-files`   | Format C++ source files with clang-format             |
+| Command              | Description                                          |
+|----------------------|------------------------------------------------------|
+| `make-user-presets`  | Generate `CMakeUserPresets.json` from compiler specs |
+| `run-user-workflows` | Execute CMake workflow presets                       |
+| `format-cxx-files`   | Format C++ sources with clang-format                 |
+| `clear-cmake-cache`  | Delete `CMakeCache.txt` from build directories       |
+| `set-cmake-variable` | Set CMake variables across build directories         |
 
-## Tools
+## Usage
 
-### make-user-presets
+### 1. Define compilers
 
-Generates a `CMakeUserPresets.json` file from a JSON file describing available
-compilers. For each compiler, it produces configure, build, test, and workflow
-presets in three configurations: Release, RelWithDebInfo (devel), and Debug.
-
-```bash
-make-user-presets compilers.json
-```
-
-The input file is a JSON array of compiler descriptors:
+Create a JSON file listing your compiler installations. The schema is
+validated automatically on input.
 
 ```json
 [
@@ -47,93 +52,113 @@ The input file is a JSON array of compiler descriptors:
     "cc": "gcc",
     "cxx": "g++",
     "addPaths": true
+  },
+  {
+    "name": "clang-18",
+    "root": "/usr/local/clang-18",
+    "cc": "clang",
+    "cxx": "clang++"
   }
 ]
 ```
 
-Each compiler entry requires:
+Each compiler requires:
 
-| Field  | Description                              |
-|--------|------------------------------------------|
-| `name` | A unique name used to identify presets   |
-| `root` | Path to the compiler installation root   |
-| `cc`   | C compiler executable name               |
-| `cxx`  | C++ compiler executable name             |
+| Field      | Description                                          |
+|------------|------------------------------------------------------|
+| `name`     | Identifier used as the CMake preset name             |
+| `root`     | Absolute path to the compiler installation directory |
+| `cc`       | C compiler executable name                           |
+| `cxx`      | C++ compiler executable name                         |
+| `addPaths` | *(optional)* Add compiler dirs to environment paths  |
 
-The optional `addPaths` field (default: false) controls whether `PATH`,
-`LIBRARY_PATH`, `LD_LIBRARY_PATH`, and `CPATH` are prepended with the
-compiler's directories. When false, only `CC` and `CXX` are set using
-fully-qualified paths.
-
-The input is validated against a JSON Schema (`tools/compilers.schema.json`).
-Malformed input — missing keys, wrong types, or unknown properties — is
-rejected with a clear error message before preset generation begins.
-
-**Options:**
-
-```
-positional arguments:
-  filename                    Path to the compiler list JSON file
-
-options:
-  -o, --output-file PATH      Output file (default: CMakeUserPresets.json)
-  --stdout                    Print to stdout instead of writing a file
-  --shared-build-directory    All presets share the same build directory
-  --shared-devel-build-directory
-                              Normal and devel builds share the same directory
-  --replace-existing          Overwrite the output file if it already exists
-  --test-jobs N               Number of parallel test jobs (default: 1)
-```
-
-### run-user-workflows
-
-Reads workflow presets from a `CMakeUserPresets.json` file and executes them
-sequentially via `cmake --workflow --preset`. Supports regex-based filtering to
-run a subset of workflows.
+### 2. Generate presets
 
 ```bash
-# Run all workflows
+make-user-presets compilers.json
+```
+
+This reads `compilers.json` and writes `CMakeUserPresets.json` containing
+configure, build, test, and workflow presets for each compiler in Release,
+Debug, and RelWithDebInfo configurations.
+
+Options:
+
+```
+-o, --output-file FILE   Output path (default: CMakeUserPresets.json)
+--stdout                 Print to stdout instead of writing a file
+--replace-existing       Overwrite the output file if it exists
+--shared-build-directory All presets share the same build directory
+--test-jobs N            Number of parallel test jobs (default: 1)
+```
+
+### 3. Run workflows
+
+```bash
+run-user-workflows                    # Run all workflows
+run-user-workflows -m gcc             # Only workflows matching "gcc"
+run-user-workflows -m gcc -e devel    # Match "gcc", exclude "devel"
+```
+
+Options:
+
+```
+-i, --input-path FILE   Presets file (default: CMakeUserPresets.json)
+-m, --matching REGEX    Include only workflows matching this pattern
+-e, --exclude REGEX     Exclude workflows matching this pattern
+```
+
+### 4. Clear CMake caches
+
+```bash
+clear-cmake-cache                     # Clear all build directories
+clear-cmake-cache -m clang            # Only clang build directories
+```
+
+Deletes `CMakeCache.txt` from each matched workflow's build directory,
+forcing a clean reconfigure on the next build.
+
+### 5. Set CMake variables
+
+```bash
+set-cmake-variable -D CMAKE_BUILD_TYPE=Debug
+set-cmake-variable -m gcc -D CMAKE_BUILD_TYPE=Debug -D ENABLE_TESTS=ON
+```
+
+Runs `cmake <build_dir> -DVAR=VALUE` for each matched workflow's build
+directory. Accepts one or more `-D` flags, mimicking CMake's own syntax.
+
+### 6. Format C++ files
+
+```bash
+format-cxx-files                          # Format current directory
+format-cxx-files --source-tree src/       # Format a specific tree
+format-cxx-files --clang-format clang-format-18
+```
+
+Finds all C++ source files (`.cc`, `.cpp`, `.cxx`, `.C`, `.hpp`, `.hxx`,
+`.ixx`) and formats them with clang-format.
+
+## Typical Workflow
+
+```bash
+# One-time setup
+make-user-presets compilers.json
+
+# Build and test everything
 run-user-workflows
 
-# Run only workflows matching a pattern
-run-user-workflows --matching "gcc-14"
+# Build only GCC release
+run-user-workflows -m "gcc-14$"
 
-# Exclude debug workflows
-run-user-workflows --exclude "debug"
+# Change a CMake variable across all builds
+set-cmake-variable -D CMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-# Combine both
-run-user-workflows --matching "gcc" --exclude "devel"
-```
+# Clean slate for a specific compiler
+clear-cmake-cache -m clang
 
-**Options:**
-
-```
-options:
-  -i, --input-path PATH   Presets file (default: CMakeUserPresets.json)
-  -m, --matching REGEX    Only run workflows matching this pattern
-  -e, --exclude REGEX     Skip workflows matching this pattern
-```
-
-### format-cxx-files
-
-Recursively finds C++ source files in a directory tree and formats them
-in-place using clang-format. Recognized extensions: `.cc`, `.cpp`, `.cxx`,
-`.C`, `.hpp`, `.hxx`, `.ixx`.
-
-```bash
-# Format the current directory
+# Format before committing
 format-cxx-files
-
-# Format a specific source tree with a specific clang-format
-format-cxx-files --source-tree /path/to/project --clang-format /usr/bin/clang-format-18
-```
-
-**Options:**
-
-```
-options:
-  --source-tree PATH      Root of the source tree (default: current directory)
-  --clang-format PATH     Path to clang-format executable (default: clang-format)
 ```
 
 ## Development
@@ -141,22 +166,42 @@ options:
 ### Running tests
 
 ```bash
-poetry run pytest
+poetry run pytest -v
 ```
 
 ### Linting and formatting
-
-The project uses [ruff](https://docs.astral.sh/ruff/) for linting and
-formatting, enforced via pre-commit hooks:
 
 ```bash
 poetry run pre-commit run --all-files
 ```
 
+Pre-commit hooks include trailing whitespace checks, AST validation,
+ruff linting with auto-fix, and ruff-format for code formatting.
+
 ### Type checking
 
 ```bash
 poetry run mypy tools
+```
+
+## Project Structure
+
+```
+tools/                     # Main package
+  __init__.py              # Entry points for all five CLI tools
+  make_user_presets.py     # Generate CMakeUserPresets.json from compiler specs
+  run_user_workflows.py    # Execute CMake workflow presets
+  format_cxx_files.py      # Format C++ sources with clang-format
+  clear_cmake_cache.py     # Clear CMakeCache.txt from workflow build directories
+  set_cmake_variable.py    # Set CMake variables in workflow build directories
+  build_documentation.py   # Documentation builder (stub)
+  compilers.schema.json    # JSON Schema for compiler input validation
+test/                      # Tests (pytest)
+  test_make_user_presets.py
+  test_format_cxx_files.py
+  test_clear_cmake_cache.py
+  test_set_cmake_variable.py
+pyproject.toml             # Project metadata and dependencies
 ```
 
 ## License

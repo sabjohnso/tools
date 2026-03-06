@@ -5,6 +5,8 @@ import sys
 from .make_user_presets import main as make_user_presets_main
 from .run_user_workflows import main as run_user_workflow_main
 from .format_cxx_files import main as run_format_cxx_files_main
+from .clear_cmake_cache import main as clear_cmake_cache_main
+from .set_cmake_variable import main as set_cmake_variable_main
 
 
 def make_user_presets():
@@ -20,3 +22,13 @@ def run_user_workflows():
 def format_cxx_files():
     """Format the c++ source files using clang-format"""
     sys.exit(run_format_cxx_files_main(sys.argv))
+
+
+def clear_cmake_cache():
+    """Clear CMakeCache.txt from build directories of matched workflow presets."""
+    sys.exit(clear_cmake_cache_main(sys.argv))
+
+
+def set_cmake_variable():
+    """Set CMake variables in build directories of matched workflow presets."""
+    sys.exit(set_cmake_variable_main(sys.argv))

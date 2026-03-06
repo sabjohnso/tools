@@ -1,6 +1,6 @@
 [project]
 name = "tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Dev tools for a variety of libraries"
 authors = [
     {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}
@@ -35,6 +35,8 @@ packages=[{include = "tools"}]
 make-user-presets = "tools:make_user_presets"
 run-user-workflows = "tools:run_user_workflows"
 format-cxx-files = "tools:format_cxx_files"
+clear-cmake-cache = "tools:clear_cmake_cache"
+set-cmake-variable = "tools:set_cmake_variable"
 
 
 [build-system]
