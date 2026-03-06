@@ -139,7 +139,6 @@ def test_run_parallel_captures_output(mock_run):
         run(config)
         mock_run.assert_called_once_with(
             ["cmake", "--workflow", "--preset", "gcc-14"],
-            check=True,
             stdout=-1,
             stderr=-2,
             text=True,
@@ -200,7 +199,7 @@ def test_run_parallel_does_not_run_same_preset_concurrently(mock_run):
 def test_run_parallel_raises_on_failure(mock_run):
     import subprocess as sp
 
-    mock_run.side_effect = sp.CalledProcessError(1, "cmake")
+    mock_run.return_value = MagicMock(returncode=1, stdout="fail\n")
     with tempfile.TemporaryDirectory() as tmpdir:
         path = _write_presets(tmpdir)
         config = process_command_line(
@@ -211,6 +210,24 @@ def test_run_parallel_raises_on_failure(mock_run):
             assert False, "Expected CalledProcessError"
         except sp.CalledProcessError:
             pass
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_run_parallel_prints_output_from_failed_workflow(mock_run, capsys):
+    import subprocess as sp
+
+    mock_run.return_value = MagicMock(returncode=1, stdout="error: build failed\n")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        config = process_command_line(
+            ["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc-14$"]
+        )
+        try:
+            run(config)
+        except sp.CalledProcessError:
+            pass
+        captured = capsys.readouterr()
+        assert "error: build failed" in captured.out
 
 
 # --- main integration ---

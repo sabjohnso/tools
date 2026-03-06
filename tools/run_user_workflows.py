@@ -108,12 +108,17 @@ def run_parallel(groups, jobs):
         futures = {
             executor.submit(run_workflow_group, group): group for group in groups
         }
+        failed = None
         for future in as_completed(futures):
             results = future.result()
             for name, result in results:
                 print(f"--- {name} ---")
                 if result.stdout:
                     print(result.stdout, end="")
+                if failed is None and result.returncode != 0:
+                    failed = result.returncode
+        if failed is not None:
+            raise subprocess.CalledProcessError(failed, "cmake")
 
 
 def run_workflow_group(group):
@@ -122,12 +127,13 @@ def run_workflow_group(group):
     for workflow_name in group:
         result = subprocess.run(
             ["cmake", "--workflow", "--preset", workflow_name],
-            check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
         results.append((workflow_name, result))
+        if result.returncode != 0:
+            break
     return results
 
 
