@@ -30,31 +30,53 @@ def _sample_loop(pid, samples, stop_event):
     """Periodically sample CPU and RSS for a process tree."""
     try:
         proc = psutil.Process(pid)
-        proc.cpu_percent()
-        for child in proc.children(recursive=True):
-            child.cpu_percent()
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return
+    prev_time = time.monotonic()
+    prev_cpu_time = _total_cpu_time(proc)
     while not stop_event.is_set():
         stop_event.wait(0.5)
         try:
-            cpu, rss = _sample_process_tree(proc)
+            now = time.monotonic()
+            cpu_time = _total_cpu_time(proc)
+            rss = _total_rss(proc)
+            cpu = compute_cpu_percent(prev_cpu_time, cpu_time, now - prev_time)
             samples.append((cpu, rss))
+            prev_time = now
+            prev_cpu_time = cpu_time
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             break
 
 
-def _sample_process_tree(proc):
-    """Return (total_cpu_percent, total_rss_bytes) for a process and its children."""
-    cpu = proc.cpu_percent()
+def compute_cpu_percent(prev_cpu_time, cpu_time, dt):
+    """Return CPU usage as a percentage from cumulative CPU time deltas."""
+    if dt <= 0:
+        return 0.0
+    return ((cpu_time - prev_cpu_time) / dt) * 100.0
+
+
+def _total_cpu_time(proc):
+    """Return total CPU seconds for a process and its children."""
+    times = proc.cpu_times()
+    total = times.user + times.system
+    for child in proc.children(recursive=True):
+        try:
+            ct = child.cpu_times()
+            total += ct.user + ct.system
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return total
+
+
+def _total_rss(proc):
+    """Return total RSS bytes for a process and its children."""
     rss = proc.memory_info().rss
     for child in proc.children(recursive=True):
         try:
-            cpu += child.cpu_percent()
             rss += child.memory_info().rss
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    return cpu, rss
+    return rss
 
 
 def compute_resource_stats(samples):

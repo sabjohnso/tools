@@ -1,11 +1,45 @@
 """Tests for the resource_monitor module."""
 
 from tools.resource_monitor import (
+    compute_cpu_percent,
     compute_resource_stats,
     format_duration,
     format_resource_table,
     format_bytes,
+    monitor_subprocess,
 )
+
+
+# --- compute_cpu_percent ---
+
+
+def test_compute_cpu_percent_half_utilization():
+    assert compute_cpu_percent(prev_cpu_time=1.0, cpu_time=3.0, dt=4.0) == 50.0
+
+
+def test_compute_cpu_percent_full_utilization():
+    assert compute_cpu_percent(prev_cpu_time=0.0, cpu_time=2.0, dt=2.0) == 100.0
+
+
+def test_compute_cpu_percent_zero_dt_returns_zero():
+    assert compute_cpu_percent(prev_cpu_time=0.0, cpu_time=1.0, dt=0.0) == 0.0
+
+
+def test_compute_cpu_percent_multicore_exceeds_100():
+    assert compute_cpu_percent(prev_cpu_time=0.0, cpu_time=8.0, dt=2.0) == 400.0
+
+
+def test_monitor_subprocess_reports_nonzero_cpu():
+    # Burn CPU for ~1.5s to ensure at least one sample is taken
+    _, samples, _ = monitor_subprocess(
+        [
+            "python3",
+            "-c",
+            "import time; t=time.monotonic()\nwhile time.monotonic()-t<1.5: sum(range(10**5))",
+        ]
+    )
+    stats = compute_resource_stats(samples)
+    assert stats["max_cpu"] > 0.0, "CPU load should be non-zero for a busy process"
 
 
 # --- compute_resource_stats ---
