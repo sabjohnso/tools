@@ -98,9 +98,19 @@ def get_configure_step_name(workflow):
     raise KeyError(f"No configure step in workflow: {workflow['name']}")
 
 
+def workflow_banner(name):
+    """Return a visually distinct banner for a workflow name."""
+    padding = 4
+    width = len(name) + padding * 2
+    border = "═" * width
+    inner = f"║{' ' * padding}{name}{' ' * padding}║"
+    return f"╔{border}╗\n{inner}\n╚{border}╝"
+
+
 def run_sequential(workflow_names):
     """Run workflows one at a time with direct output."""
     for workflow_name in workflow_names:
+        print(workflow_banner(workflow_name))
         subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
 
 
@@ -114,7 +124,7 @@ def run_parallel(groups, jobs):
         for future in as_completed(futures):
             results = future.result()
             for name, result in results:
-                print(f"--- {name} ---")
+                print(workflow_banner(name))
                 if result.stdout:
                     print(result.stdout, end="")
                 if failed is None and result.returncode != 0:

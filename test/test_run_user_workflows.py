@@ -12,6 +12,7 @@ from tools.run_user_workflows import (
     make_command_line_parser,
     process_command_line,
     run,
+    workflow_banner,
 )
 
 
@@ -66,7 +67,46 @@ def test_parser_accepts_long_jobs_flag():
     assert config.jobs == 8
 
 
+# --- workflow banner ---
+
+
+def test_workflow_banner_contains_workflow_name():
+    banner = workflow_banner("gcc-14")
+    assert "gcc-14" in banner
+
+
+def test_workflow_banner_is_visually_distinct():
+    banner = workflow_banner("gcc-14")
+    lines = banner.strip().split("\n")
+    assert len(lines) >= 3, "Banner should have at least 3 lines for visibility"
+    assert len(lines[0]) == len(lines[-1]), (
+        "Top and bottom borders should be same width"
+    )
+
+
+def test_workflow_banner_width_adapts_to_name():
+    short = workflow_banner("a")
+    long = workflow_banner("a-very-long-workflow-name")
+    short_width = len(short.strip().split("\n")[0])
+    long_width = len(long.strip().split("\n")[0])
+    assert long_width > short_width
+
+
 # --- sequential run (jobs=1, existing behavior) ---
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_run_sequential_prints_banner(mock_run, capsys):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        config = process_command_line(
+            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
+        )
+        run(config)
+        captured = capsys.readouterr()
+        assert "gcc-14" in captured.out
+        lines = captured.out.strip().split("\n")
+        assert len(lines) >= 3, "Banner should be printed before the workflow"
 
 
 @patch("tools.run_user_workflows.subprocess.run")
