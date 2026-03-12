@@ -13,12 +13,14 @@ tools/                  # Main package
   format_cxx_files.py   # Format C++ sources with clang-format
   clear_cmake_cache.py  # Clear CMakeCache.txt from workflow build directories
   set_cmake_variable.py # Set CMake variables in workflow build directories
+  resource_monitor.py   # Monitor subprocess CPU and RSS usage
   build_documentation.py # Documentation builder (stub)
   compilers.schema.json # JSON Schema for compiler input validation
 test/                   # Tests (pytest)
   test_make_user_presets.py
   test_format_cxx_files.py
   test_clear_cmake_cache.py
+  test_resource_monitor.py
   test_set_cmake_variable.py
 ```
 

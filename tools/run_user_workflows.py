@@ -9,6 +9,12 @@ from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from tools.resource_monitor import (
+    compute_resource_stats,
+    format_resource_table,
+    monitor_subprocess,
+)
+
 
 def main(args):
     """Run the user presets according to the input arguments and return
@@ -108,10 +114,17 @@ def workflow_banner(name):
 
 
 def run_sequential(workflow_names):
-    """Run workflows one at a time with direct output."""
+    """Run workflows one at a time with resource monitoring."""
     for workflow_name in workflow_names:
         print(workflow_banner(workflow_name))
-        subprocess.run(["cmake", "--workflow", "--preset", workflow_name], check=True)
+        returncode, samples, elapsed = monitor_subprocess(
+            ["cmake", "--workflow", "--preset", workflow_name]
+        )
+        stats = compute_resource_stats(samples)
+        stats["elapsed"] = elapsed
+        print(format_resource_table(stats))
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, "cmake")
 
 
 def run_parallel(groups, jobs):

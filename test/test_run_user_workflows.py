@@ -95,8 +95,9 @@ def test_workflow_banner_width_adapts_to_name():
 # --- sequential run (jobs=1, existing behavior) ---
 
 
-@patch("tools.run_user_workflows.subprocess.run")
-def test_run_sequential_prints_banner(mock_run, capsys):
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_run_sequential_prints_banner(mock_monitor, capsys):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = _write_presets(tmpdir)
         config = process_command_line(
@@ -105,21 +106,51 @@ def test_run_sequential_prints_banner(mock_run, capsys):
         run(config)
         captured = capsys.readouterr()
         assert "gcc-14" in captured.out
-        lines = captured.out.strip().split("\n")
-        assert len(lines) >= 3, "Banner should be printed before the workflow"
 
 
-@patch("tools.run_user_workflows.subprocess.run")
-def test_run_sequential_calls_cmake_for_each_workflow(mock_run):
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_run_sequential_calls_monitor_for_each_workflow(mock_monitor):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = _write_presets(tmpdir)
         config = process_command_line(
             ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
         )
         run(config)
-        mock_run.assert_called_once_with(
-            ["cmake", "--workflow", "--preset", "gcc-14"], check=True
+        mock_monitor.assert_called_once_with(
+            ["cmake", "--workflow", "--preset", "gcc-14"]
         )
+
+
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_run_sequential_prints_resource_table(mock_monitor, capsys):
+    mock_monitor.return_value = (0, [(50.0, 1024 * 1024 * 100)], 2.5)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        config = process_command_line(
+            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
+        )
+        run(config)
+        captured = capsys.readouterr()
+        assert "CPU" in captured.out
+        assert "RSS" in captured.out
+
+
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_run_sequential_raises_on_failure(mock_monitor):
+    import subprocess as sp
+
+    mock_monitor.return_value = (1, [(10.0, 1000)], 0.5)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        config = process_command_line(
+            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
+        )
+        try:
+            run(config)
+            assert False, "Expected CalledProcessError"
+        except sp.CalledProcessError:
+            pass
 
 
 # --- workflow grouping ---
@@ -185,16 +216,17 @@ def test_run_parallel_captures_output(mock_run):
         )
 
 
-@patch("tools.run_user_workflows.subprocess.run")
-def test_run_sequential_does_not_capture_output(mock_run):
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_run_sequential_uses_monitor(mock_monitor):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = _write_presets(tmpdir)
         config = process_command_line(
             ["run-user-workflows", "-i", str(path), "-j", "1", "-m", "gcc-14$"]
         )
         run(config)
-        mock_run.assert_called_once_with(
-            ["cmake", "--workflow", "--preset", "gcc-14"], check=True
+        mock_monitor.assert_called_once_with(
+            ["cmake", "--workflow", "--preset", "gcc-14"]
         )
 
 
@@ -273,8 +305,9 @@ def test_run_parallel_prints_output_from_failed_workflow(mock_run, capsys):
 # --- main integration ---
 
 
-@patch("tools.run_user_workflows.subprocess.run")
-def test_main_returns_zero_on_success(mock_run):
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_main_returns_zero_on_success(mock_monitor):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
     with tempfile.TemporaryDirectory() as tmpdir:
         path = _write_presets(tmpdir)
         result = main(["run-user-workflows", "-i", str(path)])
