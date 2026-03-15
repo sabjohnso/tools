@@ -1,7 +1,11 @@
 # Project: Dev Tools
 
 Command-line utilities for managing CMake-based C++ project builds.
-Five entry points: `make-user-presets`, `run-user-workflows`, `format-cxx-files`, `clear-cmake-cache`, `set-cmake-variable`.
+These tools are used by other C++ projects — they generate
+`CMakeUserPresets.json` files and run workflows defined in those presets.
+
+Five entry points: `make-user-presets`, `run-user-workflows`, `format-cxx-files`,
+`clear-cmake-cache`, `set-cmake-variable`.
 
 ## Project structure
 
@@ -52,6 +56,46 @@ re-stage and commit again.
 - **Line length**: 88 characters (ruff)
 - **Test files**: module docstring only; test function names are self-documenting
 - **No attribution**: do not add Co-Authored-By or similar to commits or source files
+
+## Preset generation architecture
+
+`make_user_presets.py` reads a JSON compiler specification (validated against
+`compilers.schema.json`) and generates a complete `CMakeUserPresets.json` with
+four preset types:
+
+- **Configure presets**: one per compiler — sets compiler paths, environment
+  variables, and build directory. Shared across all build types for that compiler.
+- **Build presets**: one per compiler × build-type — inherits from `baseBuild`,
+  sets `configuration` (which maps to `CMAKE_BUILD_TYPE`).
+- **Test presets**: one per compiler × build-type — inherits from `baseTest`,
+  mirrors build preset configuration.
+- **Workflow presets**: one per compiler × build-type — chains configure → build → test.
+
+### Build types and workflow suffixes
+
+Each compiler produces three workflows, distinguished by a name suffix:
+
+| Suffix    | Build Type        | Flags              | Purpose                          |
+|-----------|-------------------|--------------------|----------------------------------|
+| (none)    | `Release`         | (CMake default)    | Optimized production builds      |
+| `-devel`  | `RelWithAsserts`  | `-O3`              | Optimized with asserts active    |
+| `-debug`  | `Debug`           | (CMake default)    | Unoptimized, full debug symbols  |
+
+Additionally, `RelWithDebInfo` is overridden via `cacheVariables` to use
+`-O3 -g -DNDEBUG` (optimized with debug info, asserts disabled). This
+overrides the project-level `CMakePresets.json` definition.
+
+The build type controls `CMAKE_BUILD_TYPE` via the `configuration` field on
+build and test presets. Custom build types are supported by setting
+`CMAKE_<LANG>_FLAGS_<BUILDTYPE>` cache variables in configure presets.
+
+### Shared modules across tools
+
+`clear_cmake_cache.py` and `set_cmake_variable.py` share the same pattern for
+discovering build directories from workflow presets (reading `CMakeUserPresets.json`,
+resolving `${sourceDir}`, deduplicating). Both also share workflow name filtering
+via `--matching`/`--exclude` regex patterns — this pattern is also used by
+`run_user_workflows.py`.
 
 ## Files not to commit
 

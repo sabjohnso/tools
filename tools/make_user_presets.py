@@ -142,7 +142,7 @@ def make_build_presets(config, input_data):
             for compiler in input_data
         ]
         + [
-            make_build_preset(compiler["name"], "-devel", "RelWithDebInfo")
+            make_build_preset(compiler["name"], "-devel", "RelWithAsserts")
             for compiler in input_data
         ]
         + [
@@ -175,7 +175,7 @@ def make_test_presets(config, input_data):
         ]
         + [make_test_preset(compiler["name"], "", "Release") for compiler in input_data]
         + [
-            make_test_preset(compiler["name"], "-devel", "RelWithDebInfo")
+            make_test_preset(compiler["name"], "-devel", "RelWithAsserts")
             for compiler in input_data
         ]
         + [
@@ -202,6 +202,7 @@ def make_configure_preset(config, compiler):
         "inherits": "default",
         "hidden": False,
         "binaryDir": binary_directory(config, compiler),
+        "cacheVariables": custom_build_type_flags(),
         "environment": (
             {
                 "PATH": f"{compiler['root']}/bin:" + "$penv{PATH}",
@@ -219,6 +220,16 @@ def make_configure_preset(config, compiler):
                 "CXX": f"{compiler['root']}/bin/{compiler['cxx']}",
             }
         ),
+    }
+
+
+def custom_build_type_flags():
+    """Return cache variables defining compiler flags for custom build types."""
+    return {
+        "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
+        "CMAKE_C_FLAGS_RELWITHASSERTS": "-O3",
+        "CMAKE_CXX_FLAGS_RELWITHASSERTS": "-O3",
     }
 
 
