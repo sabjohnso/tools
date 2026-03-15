@@ -71,6 +71,12 @@ def make_command_line_parser(prog):
         default=1,
         help="The number of jobs to use when running the tests",
     )
+
+    parser.add_argument(
+        "--inherits",
+        default="default",
+        help="The configure preset to inherit from (default: 'default')",
+    )
     return parser
 
 
@@ -136,7 +142,7 @@ def make_configure_presets(config, input_data):
 def make_build_presets(config, input_data):
     """Return build presets for all compilers and build types."""
     return (
-        [{"name": "baseBuild", "jobs": 16, "configurePreset": "default"}]
+        [{"name": "baseBuild", "jobs": 16, "configurePreset": config.inherits}]
         + [
             make_build_preset(compiler["name"], "", "Release")
             for compiler in input_data
@@ -169,7 +175,7 @@ def make_test_presets(config, input_data):
             {
                 "name": "baseTest",
                 "output": {"outputOnFailure": True},
-                "configurePreset": "default",
+                "configurePreset": config.inherits,
                 "execution": {"jobs": config.test_jobs},
             }
         ]
@@ -199,7 +205,7 @@ def make_configure_preset(config, compiler):
     """Return a single configure preset for the given compiler."""
     return {
         "name": compiler["name"],
-        "inherits": "default",
+        "inherits": config.inherits,
         "hidden": False,
         "binaryDir": binary_directory(config, compiler),
         "cacheVariables": custom_build_type_flags(),
