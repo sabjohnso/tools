@@ -18,6 +18,8 @@ tools/                  # Main package
   clear_cmake_cache.py  # Clear CMakeCache.txt from workflow build directories
   set_cmake_variable.py # Set CMake variables in workflow build directories
   resource_monitor.py   # Monitor subprocess CPU and RSS usage
+  multi_config.py       # Detect multi-configuration generators in presets and caches
+  user_presets.py       # Find workflow facts in CMakeUserPresets.json
   build_documentation.py # Documentation builder (stub)
   compilers.schema.json # JSON Schema for compiler input validation
 test/                   # Tests (pytest)
@@ -26,6 +28,7 @@ test/                   # Tests (pytest)
   test_clear_cmake_cache.py
   test_resource_monitor.py
   test_set_cmake_variable.py
+  test_multi_config.py
 ```
 
 ## Build and test

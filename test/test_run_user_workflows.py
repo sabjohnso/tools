@@ -312,3 +312,73 @@ def test_main_returns_zero_on_success(mock_monitor):
         path = _write_presets(tmpdir)
         result = main(["run-user-workflows", "-i", str(path)])
         assert result == 0
+
+
+SINGLE_CONFIG_CACHE = (
+    "CMAKE_CONFIGURATION_TYPES:STRING=Debug\nCMAKE_GENERATOR:INTERNAL=Ninja\n"
+)
+MULTI_CONFIG_CACHE = "CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n"
+
+
+def _write_cache(tmpdir, text):
+    build_dir = Path(tmpdir) / "build-gcc-14"
+    build_dir.mkdir()
+    (build_dir / "CMakeCache.txt").write_text(text)
+
+
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_main_fails_after_a_single_config_sequential_workflow(mock_monitor, capsys):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
+        result = main(["run-user-workflows", "-i", str(path), "-m", "gcc"])
+    assert result == 1
+    assert mock_monitor.call_count == 1
+    assert "multi-configuration" in capsys.readouterr().err
+
+
+@patch("tools.run_user_workflows.monitor_subprocess")
+def test_main_accepts_a_multi_config_sequential_workflow(mock_monitor):
+    mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        _write_cache(tmpdir, MULTI_CONFIG_CACHE)
+        result = main(["run-user-workflows", "-i", str(path), "-m", "gcc"])
+    assert result == 0
+    assert mock_monitor.call_count == 2
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_main_fails_after_a_single_config_parallel_workflow(mock_run, capsys):
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
+        result = main(["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc"])
+    assert result == 1
+    assert "multi-configuration" in capsys.readouterr().err
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_parallel_cmake_failure_wins_over_a_single_config_problem(mock_run):
+    def fake_run(cmd, **kwargs):
+        return MagicMock(returncode=2 if cmd[3] == "clang-18" else 0, stdout="")
+
+    mock_run.side_effect = fake_run
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
+        result = main(["run-user-workflows", "-i", str(path), "-j", "2"])
+    assert result == 2
+
+
+@patch("tools.run_user_workflows.subprocess.run")
+def test_parallel_group_stops_after_a_single_config_workflow(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = _write_presets(tmpdir)
+        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
+        main(["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc"])
+    ran = [c.args[0][3] for c in mock_run.call_args_list]
+    assert ran == ["gcc-14"]

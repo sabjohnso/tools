@@ -82,6 +82,14 @@ This reads `compilers.json` and writes `CMakeUserPresets.json` containing
 configure, build, test, and workflow presets for each compiler in Release,
 Debug, and RelWithDebInfo configurations.
 
+The workflows of one compiler share one build directory, so the inherited
+configure preset (`--inherits`, default `default`) must use a
+multi-configuration generator, for example `Ninja Multi-Config`. The tool
+reads `CMakePresets.json` next to the output file, and it stops with an
+error if the inherited preset or its parents set a different generator or
+no generator. `run-user-workflows` also stops after a workflow whose
+`CMakeCache.txt` records a single-configuration generator.
+
 Options:
 
 ```

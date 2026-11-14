@@ -9,6 +9,12 @@ from pathlib import Path
 
 import jsonschema
 
+from tools.multi_config import (
+    SingleConfigError,
+    find_generator,
+    is_multi_config_generator,
+)
+
 
 def main(args):
     """Run the preset generator and return 0 on success."""
@@ -96,8 +102,28 @@ def run(config):
     """Read, validate, transform, and write the user presets."""
     input_data = read_input_data(config)
     validate_schema(input_data)
+    validate_project_generator(config)
     output_data = make_output_data(config, input_data)
     write_output_data(config, output_data)
+
+
+def validate_project_generator(config):
+    """Raise SingleConfigError unless the inherited preset is multi-config."""
+    project_presets = read_project_presets(config)
+    generator = find_generator(project_presets, config.inherits)
+    if not is_multi_config_generator(generator):
+        raise SingleConfigError(
+            SINGLE_CONFIG_ERROR.format(preset=config.inherits, generator=generator)
+        )
+
+
+def read_project_presets(config):
+    """Read and return the CMakePresets.json next to the output file."""
+    path = config.output_file.parent / "CMakePresets.json"
+    if not path.exists():
+        raise RuntimeError(MISSING_PROJECT_PRESETS_ERROR.format(path=path))
+    with open(path, "r", encoding="utf-8") as inp:
+        return json.load(inp)
 
 
 def validate_schema(input_data):
@@ -274,6 +300,17 @@ Could not find input file: {input_file}
 EXISTING_OUTPUT_ERROR = """
 The output file ({output_file}) already exists.  To
 overwrite it, provide the switch --replace-existing.
+"""
+
+MISSING_PROJECT_PRESETS_ERROR = """
+Could not find the project presets file: {path}
+"""
+
+SINGLE_CONFIG_ERROR = """
+The configure preset '{preset}' uses the generator {generator}.
+The -devel and -debug workflows need a multi-configuration generator,
+for example "Ninja Multi-Config". Set it in CMakePresets.json, or
+select a different preset with --inherits.
 """
 
 if __name__ == "__main__":

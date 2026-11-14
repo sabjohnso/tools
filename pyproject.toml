@@ -1,6 +1,6 @@
 [project]
 name = "tools"
-version = "0.2.0"
+version = "0.3.0"
 description = "Dev tools for a variety of libraries"
 authors = [
     {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}
@@ -48,6 +48,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.1"
 ruff = "^0.12.3"
+hypothesis = "^6.100"
 
 
 [tool.ruff]

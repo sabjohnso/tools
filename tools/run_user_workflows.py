@@ -14,6 +14,8 @@ from tools.resource_monitor import (
     format_resource_table,
     monitor_subprocess,
 )
+from tools.multi_config import SingleConfigError, cache_is_multi_config
+from tools.user_presets import build_directory, get_configure_step_name
 
 
 def main(args):
@@ -25,6 +27,9 @@ def main(args):
         return 0
     except subprocess.CalledProcessError as e:
         return e.returncode
+    except SingleConfigError as e:
+        print(e, file=sys.stderr)
+        return 1
 
 
 def process_command_line(args):
@@ -73,11 +78,33 @@ def make_command_line_parser(prog):
 def run(config):
     """Run workflows sequentially or in parallel based on config.jobs."""
     workflow_names = get_workflow_names(config)
+    check = make_build_check(config)
     if config.jobs <= 1:
-        run_sequential(workflow_names)
+        run_sequential(workflow_names, check)
     else:
         groups = group_workflows_by_configure_preset(config.input_path, workflow_names)
-        run_parallel(groups, config.jobs)
+        run_parallel(groups, config.jobs, check)
+
+
+def make_build_check(config):
+    """Return a function that gives a problem message for a workflow, or None."""
+    user_presets = get_user_presets(config)
+    source_dir = config.input_path.resolve().parent
+
+    def check(workflow_name):
+        build_dir = build_directory(user_presets, workflow_name, source_dir)
+        return single_config_problem(build_dir / "CMakeCache.txt", workflow_name)
+
+    return check
+
+
+def single_config_problem(cache_file, workflow_name):
+    """Return a message if the cache shows a single-configuration generator."""
+    if not cache_file.exists():
+        return None
+    if cache_is_multi_config(cache_file.read_text(encoding="utf-8")):
+        return None
+    return SINGLE_CONFIG_ERROR.format(workflow=workflow_name, cache_file=cache_file)
 
 
 def group_workflows_by_configure_preset(input_path, workflow_names):
@@ -96,14 +123,6 @@ def group_workflows_by_configure_preset(input_path, workflow_names):
     return [groups[key] for key in group_order]
 
 
-def get_configure_step_name(workflow):
-    """Return the name of the configure step in a workflow."""
-    for step in workflow["steps"]:
-        if step["type"] == "configure":
-            return step["name"]
-    raise KeyError(f"No configure step in workflow: {workflow['name']}")
-
-
 def workflow_banner(name):
     """Return a visually distinct banner for a workflow name."""
     padding = 4
@@ -113,7 +132,7 @@ def workflow_banner(name):
     return f"╔{border}╗\n{inner}\n╚{border}╝"
 
 
-def run_sequential(workflow_names):
+def run_sequential(workflow_names, check):
     """Run workflows one at a time with resource monitoring."""
     for workflow_name in workflow_names:
         print(workflow_banner(workflow_name))
@@ -125,28 +144,36 @@ def run_sequential(workflow_names):
         print(format_resource_table(stats))
         if returncode != 0:
             raise subprocess.CalledProcessError(returncode, "cmake")
+        problem = check(workflow_name)
+        if problem:
+            raise SingleConfigError(problem)
 
 
-def run_parallel(groups, jobs):
+def run_parallel(groups, jobs, check):
     """Run workflow groups in parallel, workflows within a group sequentially."""
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         futures = {
-            executor.submit(run_workflow_group, group): group for group in groups
+            executor.submit(run_workflow_group, group, check): group for group in groups
         }
         failed = None
+        first_problem = None
         for future in as_completed(futures):
             results = future.result()
-            for name, result in results:
+            for name, result, problem in results:
                 print(workflow_banner(name))
                 if result.stdout:
                     print(result.stdout, end="")
                 if failed is None and result.returncode != 0:
                     failed = result.returncode
+                if first_problem is None and problem:
+                    first_problem = problem
         if failed is not None:
             raise subprocess.CalledProcessError(failed, "cmake")
+        if first_problem is not None:
+            raise SingleConfigError(first_problem)
 
 
-def run_workflow_group(group):
+def run_workflow_group(group, check):
     """Run a group of workflows sequentially, capturing output."""
     results = []
     for workflow_name in group:
@@ -156,8 +183,9 @@ def run_workflow_group(group):
             stderr=subprocess.STDOUT,
             text=True,
         )
-        results.append((workflow_name, result))
-        if result.returncode != 0:
+        problem = check(workflow_name) if result.returncode == 0 else None
+        results.append((workflow_name, result, problem))
+        if result.returncode != 0 or problem:
             break
     return results
 
@@ -205,6 +233,15 @@ def get_user_presets(config):
     with open(config.input_path, "r", encoding="utf-8") as inp:
         user_presets = json.load(inp)
     return user_presets
+
+
+SINGLE_CONFIG_ERROR = """
+The workflow '{workflow}' used a single-configuration generator.
+See CMAKE_GENERATOR in {cache_file}.
+The -devel and -debug workflows need a multi-configuration generator,
+for example "Ninja Multi-Config". Correct the configure preset, then
+delete the build directory.
+"""
 
 
 if __name__ == "__main__":

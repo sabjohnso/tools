@@ -1,5 +1,6 @@
 """Tests for the CMake user presets generator."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -120,3 +121,44 @@ def test_base_test_preset_uses_inherits_as_configure_preset():
     presets = make_test_presets(_config(inherits="multi"), compilers)
     base = presets[0]
     assert base["configurePreset"] == "multi"
+
+
+def _write_project(tmp_path, generator):
+    preset = {"name": "default", "hidden": True}
+    if generator is not None:
+        preset["generator"] = generator
+    project = {"version": 6, "configurePresets": [preset]}
+    (tmp_path / "CMakePresets.json").write_text(json.dumps(project))
+    compilers = tmp_path / "compilers.json"
+    compilers.write_text(json.dumps([_valid_compiler()]))
+    return compilers
+
+
+def _run_main(tmp_path, compilers):
+    output = tmp_path / "CMakeUserPresets.json"
+    return main(["make-user-presets", str(compilers), "-o", str(output)])
+
+
+def test_main_accepts_a_multi_config_generator(tmp_path):
+    compilers = _write_project(tmp_path, "Ninja Multi-Config")
+    assert _run_main(tmp_path, compilers) == 0
+    assert (tmp_path / "CMakeUserPresets.json").exists()
+
+
+def test_main_rejects_a_single_config_generator(tmp_path, capsys):
+    compilers = _write_project(tmp_path, "Ninja")
+    assert _run_main(tmp_path, compilers) == 1
+    assert "Ninja" in capsys.readouterr().err
+    assert not (tmp_path / "CMakeUserPresets.json").exists()
+
+
+def test_main_rejects_a_preset_with_no_generator(tmp_path):
+    compilers = _write_project(tmp_path, None)
+    assert _run_main(tmp_path, compilers) == 1
+
+
+def test_main_rejects_a_missing_project_presets_file(tmp_path, capsys):
+    compilers = _write_project(tmp_path, "Ninja Multi-Config")
+    (tmp_path / "CMakePresets.json").unlink()
+    assert _run_main(tmp_path, compilers) == 1
+    assert "CMakePresets.json" in capsys.readouterr().err
