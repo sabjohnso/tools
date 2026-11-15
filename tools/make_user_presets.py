@@ -241,7 +241,7 @@ def make_configure_preset(config, compiler):
                 "LIBRARY_PATH": f"{compiler['root']}/lib:{compiler['root']}/lib64:"
                 + "$penv{LIBRARY_PATH}",
                 "LD_LIBRARY_PATH": f"{compiler['root']}/lib:{compiler['root']}/lib64:"
-                + "$penv{LIBRARY_PATH}",
+                + "$penv{LD_LIBRARY_PATH}",
                 "CPATH": f"{compiler['root']}/include:" + "$penv{CPATH}",
                 "CC": compiler["cc"],
                 "CXX": compiler["cxx"],

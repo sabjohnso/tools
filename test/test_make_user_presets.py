@@ -292,10 +292,6 @@ def test_configure_preset_with_add_paths_prepends_lib_dirs_to_library_path():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: LD_LIBRARY_PATH appends the value of LIBRARY_PATH",
-)
 def test_configure_preset_with_add_paths_prepends_lib_dirs_to_ld_library_path():
     preset = make_configure_preset(_config(), _compiler_with_add_paths())
     assert preset["environment"]["LD_LIBRARY_PATH"] == (
