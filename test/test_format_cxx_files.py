@@ -1,12 +1,29 @@
 """Tests for the C++ file formatter."""
 
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
-import subprocess
-import tempfile
 
-from tools.format_cxx_files import main, make_command_line_parser, get_source_files
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+
+from tools.format_cxx_files import (
+    CXX_EXTENSIONS,
+    format_files,
+    get_source_files,
+    main,
+    make_command_line_parser,
+)
+
+CLANG_FORMAT = shutil.which("clang-format")
+
+needs_clang_format = pytest.mark.skipif(
+    CLANG_FORMAT is None, reason="clang-format is not installed"
+)
+
+BAD_SOURCE = "int  main( ){return 0;}\n"
+OTHER_EXTENSIONS = [".h", ".c", ".txt", ".py", ".cmake"]
 
 
 def test_parser_prog_is_full_program_name():
@@ -20,17 +37,137 @@ def test_clang_format_defaults_to_clang_format():
     assert config.clang_format == Path("clang-format")
 
 
-def test_main_returns_returncode_on_subprocess_failure():
-    error = subprocess.CalledProcessError(returncode=2, cmd=["clang-format"])
-    with patch("tools.format_cxx_files.run", side_effect=error):
-        result = main(["format-cxx-files"])
-    assert result == 2
+@given(returncode=st.integers(min_value=1, max_value=125))
+def test_main_returns_returncode_of_failed_formatter(tmp_path_factory, returncode):
+    tree = tmp_path_factory.mktemp("tree")
+    _write(tree / "hello.cpp", BAD_SOURCE)
+    formatter = _failing_formatter(tmp_path_factory.mktemp("bin"), returncode)
+    assert main(_command_line(tree, clang_format=formatter)) == returncode
 
 
-def test_get_source_files_does_not_change_cwd():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        (Path(tmpdir) / "hello.cpp").touch()
-        config = SimpleNamespace(source_tree=Path(tmpdir))
-        original_cwd = Path.cwd()
-        get_source_files(config)
-        assert Path.cwd() == original_cwd
+def test_get_source_files_does_not_change_cwd(tmp_path):
+    (tmp_path / "hello.cpp").touch()
+    original_cwd = Path.cwd()
+    get_source_files(SimpleNamespace(source_tree=tmp_path))
+    assert Path.cwd() == original_cwd
+
+
+# A stem can contain dots, and a part of a stem can be an extension name.
+# This gives names such as "a.cpp.txt" and "a.b.cpp".
+STEM_PARTS = st.text(alphabet="abcxyz_", min_size=1, max_size=5) | st.sampled_from(
+    [extension.lstrip(".") for extension in CXX_EXTENSIONS + OTHER_EXTENSIONS]
+)
+STEMS = st.lists(STEM_PARTS, min_size=1, max_size=3).map(".".join)
+
+
+@given(
+    names=st.sets(
+        st.tuples(
+            st.sampled_from(["", "src", "src/detail", "include"]),
+            STEMS,
+            st.sampled_from(CXX_EXTENSIONS + OTHER_EXTENSIONS),
+        ),
+        max_size=12,
+    )
+)
+def test_get_source_files_finds_exactly_files_with_cxx_extensions(
+    tmp_path_factory, names
+):
+    tree = tmp_path_factory.mktemp("tree")
+    files = {
+        _touch(tree / directory / f"{stem}{suffix}")
+        for directory, stem, suffix in names
+    }
+    expected = sorted(path for path in files if path.suffix in CXX_EXTENSIONS)
+    found = sorted(get_source_files(SimpleNamespace(source_tree=tree)))
+    assert found == expected
+
+
+@needs_clang_format
+def test_format_files_formats_only_the_given_files(tmp_path):
+    given_file = tmp_path / "given.cpp"
+    other_file = tmp_path / "other.cpp"
+    _write(given_file, BAD_SOURCE)
+    _write(other_file, BAD_SOURCE)
+    format_files(SimpleNamespace(clang_format=Path(CLANG_FORMAT)), [given_file])
+    assert given_file.read_text() != BAD_SOURCE
+    assert other_file.read_text() == BAD_SOURCE
+
+
+@needs_clang_format
+def test_main_formats_cxx_files_in_source_tree(tmp_path):
+    sources = [tmp_path / "main.cpp", tmp_path / "src" / "lib.hpp"]
+    for source in sources:
+        _write(source, BAD_SOURCE)
+    assert main(_command_line(tmp_path)) == 0
+    assert all(source.read_text() != BAD_SOURCE for source in sources)
+
+
+@needs_clang_format
+def test_main_does_not_change_files_with_other_extensions(tmp_path):
+    _write(tmp_path / "main.cpp", BAD_SOURCE)
+    others = [tmp_path / f"other{suffix}" for suffix in OTHER_EXTENSIONS]
+    for other in others:
+        _write(other, BAD_SOURCE)
+    assert main(_command_line(tmp_path)) == 0
+    assert all(other.read_text() == BAD_SOURCE for other in others)
+
+
+@needs_clang_format
+def test_main_keeps_formatted_files_unchanged(tmp_path):
+    source = tmp_path / "main.cpp"
+    _write(source, BAD_SOURCE)
+    main(_command_line(tmp_path))
+    formatted = source.read_text()
+    assert main(_command_line(tmp_path)) == 0
+    assert source.read_text() == formatted
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Review.org: format-cxx-files fails when it finds no files, "
+    "and it formats files in build directories",
+)
+@needs_clang_format
+def test_main_returns_zero_for_empty_source_tree(tmp_path):
+    assert main(_command_line(tmp_path)) == 0
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Review.org: format-cxx-files fails when it finds no files, "
+    "and it formats files in build directories",
+)
+@needs_clang_format
+def test_main_does_not_format_files_in_build_directories(tmp_path):
+    _write(tmp_path / "main.cpp", BAD_SOURCE)
+    dependency = tmp_path / "build-gcc" / "_deps" / "fmt-src" / "format.cc"
+    _write(dependency, BAD_SOURCE)
+    main(_command_line(tmp_path))
+    assert dependency.read_text() == BAD_SOURCE
+
+
+def _command_line(source_tree, clang_format=CLANG_FORMAT):
+    return [
+        "format-cxx-files",
+        "--source-tree",
+        str(source_tree),
+        "--clang-format",
+        str(clang_format),
+    ]
+
+
+def _failing_formatter(directory, returncode):
+    script = _write(directory / "clang-format", f"#!/bin/sh\nexit {returncode}\n")
+    script.chmod(0o755)
+    return script
+
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def _touch(path):
+    return _write(path, "")

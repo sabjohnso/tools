@@ -49,7 +49,15 @@ build-backend = "poetry.core.masonry.api"
 pytest = "^8.4.1"
 ruff = "^0.12.3"
 hypothesis = "^6.100"
+pytest-xdist = "^3.6"
 
 
 [tool.ruff]
 line-length=88
+
+
+[tool.pytest.ini_options]
+addopts = "-n auto --maxprocesses=8 --dist loadgroup"
+markers = [
+    "cmake: slow test that runs CMake and a C++ compiler",
+]

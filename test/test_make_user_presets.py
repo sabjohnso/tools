@@ -2,17 +2,23 @@
 
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from jsonschema import ValidationError
 
 from tools.make_user_presets import (
+    binary_directory,
     main,
     make_build_presets,
     make_configure_preset,
+    make_output_data,
     make_test_presets,
+    make_workflow_presets,
+    validate_input,
     validate_schema,
+    write_output_data,
 )
 
 
@@ -36,15 +42,6 @@ def test_cpath_has_separator_before_penv():
     preset = make_configure_preset(_config(), _compiler_with_add_paths())
     cpath = preset["environment"]["CPATH"]
     assert cpath == "/usr/local/gcc-14/include:$penv{CPATH}"
-
-
-def test_main_returns_zero_on_success():
-    with (
-        patch("tools.make_user_presets.validate_input"),
-        patch("tools.make_user_presets.run"),
-    ):
-        result = main(["make-user-presets", "/dev/null"])
-    assert result == 0
 
 
 def _valid_compiler():
@@ -123,15 +120,17 @@ def test_base_test_preset_uses_inherits_as_configure_preset():
     assert base["configurePreset"] == "multi"
 
 
-def _write_project(tmp_path, generator):
+def _write_project(tmp_path, generator, compilers=None):
     preset = {"name": "default", "hidden": True}
     if generator is not None:
         preset["generator"] = generator
     project = {"version": 6, "configurePresets": [preset]}
     (tmp_path / "CMakePresets.json").write_text(json.dumps(project))
-    compilers = tmp_path / "compilers.json"
-    compilers.write_text(json.dumps([_valid_compiler()]))
-    return compilers
+    input_file = tmp_path / "compilers.json"
+    if compilers is None:
+        compilers = [_valid_compiler()]
+    input_file.write_text(json.dumps(compilers))
+    return input_file
 
 
 def _run_main(tmp_path, compilers):
@@ -162,3 +161,258 @@ def test_main_rejects_a_missing_project_presets_file(tmp_path, capsys):
     (tmp_path / "CMakePresets.json").unlink()
     assert _run_main(tmp_path, compilers) == 1
     assert "CMakePresets.json" in capsys.readouterr().err
+
+
+# The names in this alphabet have no "-" and are not reserved names.
+# Thus no generated name can collide with a different generated name.
+_SAFE_NAMES = st.lists(
+    st.text(alphabet="ab", min_size=1, max_size=4), min_size=1, max_size=5, unique=True
+)
+
+# These names collide with a different compiler name, with a generated
+# name, with a base preset name or with the inherited preset name.
+_COLLIDING_NAMES = st.lists(
+    st.sampled_from(["a", "a-devel", "a-debug", "baseBuild", "baseTest", "default"]),
+    min_size=1,
+    max_size=5,
+)
+
+_PRESET_TYPES = ["configurePresets", "buildPresets", "testPresets", "workflowPresets"]
+
+_STEP_PRESET_TYPES = {
+    "configure": "configurePresets",
+    "build": "buildPresets",
+    "test": "testPresets",
+}
+
+
+def _compilers(names):
+    return [
+        {"name": name, "root": f"/opt/{name}", "cc": "gcc", "cxx": "g++"}
+        for name in names
+    ]
+
+
+def _preset_names(output_data, preset_type):
+    return [preset["name"] for preset in output_data[preset_type]]
+
+
+def _assert_unique_names(output_data):
+    for preset_type in _PRESET_TYPES:
+        names = _preset_names(output_data, preset_type)
+        assert len(names) == len(set(names)), preset_type
+
+
+# Vary the options that change the output of make_output_data.
+_OUTPUT_CONFIGS = st.builds(
+    _config,
+    shared_build_directory=st.booleans(),
+    inherits=st.sampled_from(["default", "base"]),
+)
+
+# The fields that refer to a different preset, and the preset type of the
+# preset that they refer to, for each preset type.
+_REFERENCE_FIELDS = {
+    "configurePresets": {"inherits": "configurePresets"},
+    "buildPresets": {"inherits": "buildPresets", "configurePreset": "configurePresets"},
+    "testPresets": {"inherits": "testPresets", "configurePreset": "configurePresets"},
+}
+
+
+def _existing_names(config, output_data, preset_type):
+    names = set(_preset_names(output_data, preset_type))
+    if preset_type == "configurePresets":
+        # config.inherits names a configure preset in CMakePresets.json of the
+        # project. Thus the output does not contain it.
+        names.add(config.inherits)
+    return names
+
+
+@given(_OUTPUT_CONFIGS, _SAFE_NAMES)
+def test_output_preset_names_are_unique_in_each_preset_type(config, names):
+    output_data = make_output_data(config, _compilers(names))
+    _assert_unique_names(output_data)
+
+
+@given(_OUTPUT_CONFIGS, _SAFE_NAMES)
+def test_each_workflow_step_refers_to_an_existing_preset(config, names):
+    output_data = make_output_data(config, _compilers(names))
+    for workflow in output_data["workflowPresets"]:
+        for step in workflow["steps"]:
+            preset_type = _STEP_PRESET_TYPES[step["type"]]
+            assert step["name"] in _existing_names(config, output_data, preset_type)
+
+
+@given(_OUTPUT_CONFIGS, _SAFE_NAMES)
+def test_each_preset_reference_refers_to_an_existing_preset(config, names):
+    output_data = make_output_data(config, _compilers(names))
+    for preset_type, fields in _REFERENCE_FIELDS.items():
+        for preset in output_data[preset_type]:
+            for field, target_type in fields.items():
+                if field in preset:
+                    existing = _existing_names(config, output_data, target_type)
+                    assert preset[field] in existing, (preset_type, field)
+
+
+@given(_OUTPUT_CONFIGS, _SAFE_NAMES)
+def test_output_has_three_workflows_for_each_compiler(config, names):
+    output_data = make_output_data(config, _compilers(names))
+    expected = {name + suffix for name in names for suffix in ["", "-devel", "-debug"]}
+    assert set(_preset_names(output_data, "workflowPresets")) == expected
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Review.org: Duplicate compiler names or reserved names make an "
+    "invalid presets file",
+)
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(names=_COLLIDING_NAMES)
+def test_main_rejects_colliding_names_or_writes_unique_names(tmp_path, names):
+    input_file = _write_project(tmp_path, "Ninja Multi-Config", _compilers(names))
+    output = tmp_path / "CMakeUserPresets.json"
+    # Hypothesis runs all examples in one tmp_path. Remove the output of
+    # the previous example.
+    output.unlink(missing_ok=True)
+    if _run_main(tmp_path, input_file) == 0:
+        output_data = json.loads(output.read_text())
+        _assert_unique_names(output_data)
+        assert "default" not in _preset_names(output_data, "configurePresets")
+
+
+def test_configure_preset_with_add_paths_prepends_bin_to_path():
+    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    assert preset["environment"]["PATH"] == "/usr/local/gcc-14/bin:$penv{PATH}"
+
+
+def test_configure_preset_with_add_paths_prepends_lib_dirs_to_library_path():
+    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    assert preset["environment"]["LIBRARY_PATH"] == (
+        "/usr/local/gcc-14/lib:/usr/local/gcc-14/lib64:$penv{LIBRARY_PATH}"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Review.org: LD_LIBRARY_PATH appends the value of LIBRARY_PATH",
+)
+def test_configure_preset_with_add_paths_prepends_lib_dirs_to_ld_library_path():
+    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    assert preset["environment"]["LD_LIBRARY_PATH"] == (
+        "/usr/local/gcc-14/lib:/usr/local/gcc-14/lib64:$penv{LD_LIBRARY_PATH}"
+    )
+
+
+def test_configure_preset_with_add_paths_uses_bare_compiler_names():
+    environment = make_configure_preset(_config(), _compiler_with_add_paths())[
+        "environment"
+    ]
+    assert (environment["CC"], environment["CXX"]) == ("gcc", "g++")
+
+
+def test_configure_preset_without_add_paths_uses_full_compiler_paths():
+    environment = make_configure_preset(_config(), _valid_compiler())["environment"]
+    assert environment == {
+        "CC": "/usr/local/gcc-14/bin/gcc",
+        "CXX": "/usr/local/gcc-14/bin/g++",
+    }
+
+
+def test_workflow_presets_chain_configure_build_and_test_for_each_build_type():
+    workflows = make_workflow_presets(_config(), [_valid_compiler()])
+    assert workflows == [
+        {
+            "name": name,
+            "steps": [
+                {"type": "configure", "name": "gcc-14"},
+                {"type": "build", "name": name},
+                {"type": "test", "name": name},
+            ],
+        }
+        for name in ["gcc-14", "gcc-14-devel", "gcc-14-debug"]
+    ]
+
+
+def test_binary_directory_contains_the_compiler_name():
+    directory = binary_directory(_config(), _valid_compiler())
+    assert directory == "${sourceDir}/build-gcc-14"
+
+
+def test_shared_binary_directory_has_no_compiler_name():
+    config = _config(shared_build_directory=True)
+    assert binary_directory(config, _valid_compiler()) == "${sourceDir}/build"
+
+
+def _io_config(tmp_path, **overrides):
+    defaults = {
+        "filename": tmp_path / "compilers.json",
+        "output_file": tmp_path / "CMakeUserPresets.json",
+        "replace_existing": False,
+        "stdout": False,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_validate_input_rejects_a_missing_input_file(tmp_path):
+    with pytest.raises(RuntimeError, match="compilers.json"):
+        validate_input(_io_config(tmp_path))
+
+
+def test_validate_input_rejects_an_existing_output_file(tmp_path):
+    config = _io_config(tmp_path)
+    config.filename.write_text("[]")
+    config.output_file.write_text("{}")
+    with pytest.raises(RuntimeError, match="--replace-existing"):
+        validate_input(config)
+
+
+def test_validate_input_accepts_an_existing_output_file_with_replace_existing(
+    tmp_path,
+):
+    config = _io_config(tmp_path, replace_existing=True)
+    config.filename.write_text("[]")
+    config.output_file.write_text("{}")
+    validate_input(config)
+
+
+def test_validate_input_accepts_an_existing_output_file_with_stdout(tmp_path):
+    config = _io_config(tmp_path, stdout=True)
+    config.filename.write_text("[]")
+    config.output_file.write_text("{}")
+    validate_input(config)
+
+
+def test_write_output_data_writes_json_to_the_output_file(tmp_path):
+    config = _io_config(tmp_path)
+    write_output_data(config, {"version": 6})
+    assert json.loads(config.output_file.read_text()) == {"version": 6}
+
+
+def test_write_output_data_with_stdout_prints_json_and_writes_no_file(tmp_path, capsys):
+    config = _io_config(tmp_path, stdout=True)
+    write_output_data(config, {"version": 6})
+    assert json.loads(capsys.readouterr().out) == {"version": 6}
+    assert not config.output_file.exists()
+
+
+def _configure_preset_named(output_data, name):
+    return [p for p in output_data["configurePresets"] if p["name"] == name][0]
+
+
+def test_main_writes_presets_for_each_compiler_from_input_to_output_file(tmp_path):
+    compilers = _compilers(["gcc-14", "clang-18"])
+    input_file = _write_project(tmp_path, "Ninja Multi-Config", compilers)
+    assert _run_main(tmp_path, input_file) == 0
+    output_data = json.loads((tmp_path / "CMakeUserPresets.json").read_text())
+    assert _preset_names(output_data, "workflowPresets") == [
+        "gcc-14",
+        "clang-18",
+        "gcc-14-devel",
+        "clang-18-devel",
+        "gcc-14-debug",
+        "clang-18-debug",
+    ]
+    clang = _configure_preset_named(output_data, "clang-18")
+    assert clang["binaryDir"] == "${sourceDir}/build-clang-18"
+    assert clang["environment"]["CXX"] == "/opt/clang-18/bin/g++"

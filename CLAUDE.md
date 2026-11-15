@@ -29,13 +29,21 @@ test/                   # Tests (pytest)
   test_resource_monitor.py
   test_set_cmake_variable.py
   test_multi_config.py
+  test_user_presets.py
+  test_run_user_workflows.py
+  test_cmake_integration.py  # Marked cmake; runs real CMake builds
+  conftest.py           # Shared preset fixtures
+  preset_strategies.py  # Shared Hypothesis strategies and oracles
+  test_workflow_selection.py  # Workflow filter laws for the three tools
 ```
 
 ## Build and test
 
 ```bash
 poetry install              # Install dependencies
-poetry run pytest -v        # Run tests
+poetry run pytest -v        # Run tests (up to 8 workers, from addopts)
+poetry run pytest -m "not cmake"  # Skip the slow CMake integration tests
+poetry run pytest -n 0 test/x.py   # Run one file in one process
 poetry run pre-commit run --all-files  # Lint and format
 poetry run mypy tools       # Type checking
 ```

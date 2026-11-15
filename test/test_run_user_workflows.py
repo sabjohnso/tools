@@ -1,10 +1,14 @@
 """Tests for the run_user_workflows module."""
 
-import json
-import tempfile
-from pathlib import Path
+import os
+import stat
+import subprocess
 import threading
-from unittest.mock import patch, MagicMock
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from tools.run_user_workflows import (
     group_workflows_by_configure_preset,
@@ -14,36 +18,6 @@ from tools.run_user_workflows import (
     run,
     workflow_banner,
 )
-
-
-def _preset_data():
-    return {
-        "version": 6,
-        "configurePresets": [
-            {"name": "gcc-14", "binaryDir": "${sourceDir}/build-gcc-14"},
-            {"name": "clang-18", "binaryDir": "${sourceDir}/build-clang-18"},
-        ],
-        "workflowPresets": [
-            {
-                "name": "gcc-14",
-                "steps": [{"type": "configure", "name": "gcc-14"}],
-            },
-            {
-                "name": "clang-18",
-                "steps": [{"type": "configure", "name": "clang-18"}],
-            },
-            {
-                "name": "gcc-14-devel",
-                "steps": [{"type": "configure", "name": "gcc-14"}],
-            },
-        ],
-    }
-
-
-def _write_presets(tmpdir, data=None):
-    path = Path(tmpdir) / "CMakeUserPresets.json"
-    path.write_text(json.dumps(data or _preset_data()), encoding="utf-8")
-    return path
 
 
 # --- CLI parser ---
@@ -96,144 +70,124 @@ def test_workflow_banner_width_adapts_to_name():
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_run_sequential_prints_banner(mock_monitor, capsys):
+def test_run_sequential_prints_banner(mock_monitor, presets_file, capsys):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
-        )
-        run(config)
-        captured = capsys.readouterr()
-        assert "gcc-14" in captured.out
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-m", "gcc-14$"]
+    )
+    run(config)
+    captured = capsys.readouterr()
+    assert "gcc-14" in captured.out
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_run_sequential_calls_monitor_for_each_workflow(mock_monitor):
+def test_run_sequential_calls_monitor_for_each_workflow(mock_monitor, presets_file):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
-        )
-        run(config)
-        mock_monitor.assert_called_once_with(
-            ["cmake", "--workflow", "--preset", "gcc-14"]
-        )
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-m", "gcc-14$"]
+    )
+    run(config)
+    mock_monitor.assert_called_once_with(["cmake", "--workflow", "--preset", "gcc-14"])
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_run_sequential_prints_resource_table(mock_monitor, capsys):
+def test_run_sequential_prints_resource_table(mock_monitor, presets_file, capsys):
     mock_monitor.return_value = (0, [(50.0, 1024 * 1024 * 100)], 2.5)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
-        )
-        run(config)
-        captured = capsys.readouterr()
-        assert "CPU" in captured.out
-        assert "RSS" in captured.out
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-m", "gcc-14$"]
+    )
+    run(config)
+    captured = capsys.readouterr()
+    assert "CPU" in captured.out
+    assert "RSS" in captured.out
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_run_sequential_raises_on_failure(mock_monitor):
-    import subprocess as sp
-
+def test_run_sequential_raises_on_failure(mock_monitor, presets_file):
     mock_monitor.return_value = (1, [(10.0, 1000)], 0.5)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-m", "gcc-14$"]
-        )
-        try:
-            run(config)
-            assert False, "Expected CalledProcessError"
-        except sp.CalledProcessError:
-            pass
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-m", "gcc-14$"]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        run(config)
 
 
 # --- workflow grouping ---
 
 
-def test_group_workflows_groups_by_configure_preset():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        groups = group_workflows_by_configure_preset(
-            path, ["gcc-14", "gcc-14-devel", "clang-18"]
-        )
-        assert groups == [["gcc-14", "gcc-14-devel"], ["clang-18"]]
+def test_group_workflows_groups_by_configure_preset(presets_file):
+    groups = group_workflows_by_configure_preset(
+        presets_file, ["gcc-14", "gcc-14-devel", "clang-18"]
+    )
+    assert groups == [["gcc-14", "gcc-14-devel"], ["clang-18"]]
 
 
-def test_group_workflows_preserves_order_within_group():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        groups = group_workflows_by_configure_preset(path, ["gcc-14-devel", "gcc-14"])
-        assert groups == [["gcc-14-devel", "gcc-14"]]
+def test_group_workflows_preserves_order_within_group(presets_file):
+    groups = group_workflows_by_configure_preset(
+        presets_file, ["gcc-14-devel", "gcc-14"]
+    )
+    assert groups == [["gcc-14-devel", "gcc-14"]]
 
 
-def test_group_workflows_single_workflow():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        groups = group_workflows_by_configure_preset(path, ["clang-18"])
-        assert groups == [["clang-18"]]
+def test_group_workflows_single_workflow(presets_file):
+    groups = group_workflows_by_configure_preset(presets_file, ["clang-18"])
+    assert groups == [["clang-18"]]
 
 
 # --- parallel run (jobs > 1) ---
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_run_parallel_runs_all_matching_workflows(mock_run):
+def test_run_parallel_runs_all_matching_workflows(mock_run, presets_file):
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "2"]
-        )
-        run(config)
-        workflow_names_called = [c.args[0][3] for c in mock_run.call_args_list]
-        assert sorted(workflow_names_called) == [
-            "clang-18",
-            "gcc-14",
-            "gcc-14-devel",
-        ]
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "2"]
+    )
+    run(config)
+    workflow_names_called = [c.args[0][3] for c in mock_run.call_args_list]
+    assert sorted(workflow_names_called) == [
+        "clang-18",
+        "gcc-14",
+        "gcc-14-devel",
+    ]
 
 
-@patch("tools.run_user_workflows.subprocess.run")
-def test_run_parallel_captures_output(mock_run):
-    mock_run.return_value = MagicMock(returncode=0, stdout="build ok\n", stderr="")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc-14$"]
-        )
-        run(config)
-        mock_run.assert_called_once_with(
-            ["cmake", "--workflow", "--preset", "gcc-14"],
-            stdout=-1,
-            stderr=-2,
-            text=True,
-        )
+def _install_fake_cmake(directory: Path, script: str) -> None:
+    cmake = directory / "cmake"
+    cmake.write_text(f"#!/bin/sh\n{script}\n", encoding="utf-8")
+    cmake.chmod(cmake.stat().st_mode | stat.S_IXUSR)
+
+
+def test_run_parallel_prints_stdout_and_stderr_of_the_workflow(
+    presets_file, tmp_path, monkeypatch, capsys
+):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_fake_cmake(bin_dir, 'echo "build ok $3"\necho "warning $3" >&2')
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc-14$"]
+    )
+    run(config)
+    captured = capsys.readouterr()
+    assert "build ok gcc-14" in captured.out
+    assert "warning gcc-14" in captured.out
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_run_sequential_uses_monitor(mock_monitor):
+def test_run_sequential_uses_monitor(mock_monitor, presets_file):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "1", "-m", "gcc-14$"]
-        )
-        run(config)
-        mock_monitor.assert_called_once_with(
-            ["cmake", "--workflow", "--preset", "gcc-14"]
-        )
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "1", "-m", "gcc-14$"]
+    )
+    run(config)
+    mock_monitor.assert_called_once_with(["cmake", "--workflow", "--preset", "gcc-14"])
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_run_parallel_does_not_run_same_preset_concurrently(mock_run):
-    """Workflows sharing a configure preset must not overlap in time."""
-    active = {}  # configure_preset -> count of concurrent runs
+def test_run_parallel_does_not_run_same_preset_concurrently(mock_run, presets_file):
+    # Workflows that share a configure preset must not run at the same time.
+    active = {}
     violations = []
     lock = threading.Lock()
 
@@ -250,68 +204,51 @@ def test_run_parallel_does_not_run_same_preset_concurrently(mock_run):
             active[preset] = active.get(preset, 0) + 1
             if active[preset] > 1:
                 violations.append(f"{preset} had {active[preset]} concurrent runs")
-        import time
-
         time.sleep(0.05)
         with lock:
             active[preset] -= 1
         return MagicMock(returncode=0, stdout="ok\n", stderr="")
 
     mock_run.side_effect = fake_run
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "4"]
-        )
-        run(config)
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "4"]
+    )
+    run(config)
     assert violations == [], f"Concurrent violations: {violations}"
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_run_parallel_raises_on_failure(mock_run):
-    import subprocess as sp
-
+def test_run_parallel_raises_on_failure(mock_run, presets_file):
     mock_run.return_value = MagicMock(returncode=1, stdout="fail\n")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc-14$"]
-        )
-        try:
-            run(config)
-            assert False, "Expected CalledProcessError"
-        except sp.CalledProcessError:
-            pass
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc-14$"]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        run(config)
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_run_parallel_prints_output_from_failed_workflow(mock_run, capsys):
-    import subprocess as sp
-
+def test_run_parallel_prints_output_from_failed_workflow(
+    mock_run, presets_file, capsys
+):
     mock_run.return_value = MagicMock(returncode=1, stdout="error: build failed\n")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        config = process_command_line(
-            ["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc-14$"]
-        )
-        try:
-            run(config)
-        except sp.CalledProcessError:
-            pass
-        captured = capsys.readouterr()
-        assert "error: build failed" in captured.out
+    config = process_command_line(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc-14$"]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        run(config)
+    captured = capsys.readouterr()
+    assert "error: build failed" in captured.out
 
 
 # --- main integration ---
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_main_returns_zero_on_success(mock_monitor):
+def test_main_returns_zero_on_success(mock_monitor, presets_file):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        result = main(["run-user-workflows", "-i", str(path)])
-        assert result == 0
+    result = main(["run-user-workflows", "-i", str(presets_file)])
+    assert result == 0
 
 
 SINGLE_CONFIG_CACHE = (
@@ -320,65 +257,63 @@ SINGLE_CONFIG_CACHE = (
 MULTI_CONFIG_CACHE = "CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n"
 
 
-def _write_cache(tmpdir, text):
-    build_dir = Path(tmpdir) / "build-gcc-14"
+def _write_cache(source_dir: Path, text: str) -> None:
+    build_dir = source_dir / "build-gcc-14"
     build_dir.mkdir()
     (build_dir / "CMakeCache.txt").write_text(text)
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_main_fails_after_a_single_config_sequential_workflow(mock_monitor, capsys):
+def test_main_fails_after_a_single_config_sequential_workflow(
+    mock_monitor, presets_file, capsys
+):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
-        result = main(["run-user-workflows", "-i", str(path), "-m", "gcc"])
+    _write_cache(presets_file.parent, SINGLE_CONFIG_CACHE)
+    result = main(["run-user-workflows", "-i", str(presets_file), "-m", "gcc"])
     assert result == 1
     assert mock_monitor.call_count == 1
     assert "multi-configuration" in capsys.readouterr().err
 
 
 @patch("tools.run_user_workflows.monitor_subprocess")
-def test_main_accepts_a_multi_config_sequential_workflow(mock_monitor):
+def test_main_accepts_a_multi_config_sequential_workflow(mock_monitor, presets_file):
     mock_monitor.return_value = (0, [(10.0, 1000)], 1.0)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        _write_cache(tmpdir, MULTI_CONFIG_CACHE)
-        result = main(["run-user-workflows", "-i", str(path), "-m", "gcc"])
+    _write_cache(presets_file.parent, MULTI_CONFIG_CACHE)
+    result = main(["run-user-workflows", "-i", str(presets_file), "-m", "gcc"])
     assert result == 0
     assert mock_monitor.call_count == 2
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_main_fails_after_a_single_config_parallel_workflow(mock_run, capsys):
+def test_main_fails_after_a_single_config_parallel_workflow(
+    mock_run, presets_file, capsys
+):
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
-        result = main(["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc"])
+    _write_cache(presets_file.parent, SINGLE_CONFIG_CACHE)
+    result = main(
+        ["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc"]
+    )
     assert result == 1
     assert "multi-configuration" in capsys.readouterr().err
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_parallel_cmake_failure_wins_over_a_single_config_problem(mock_run):
+def test_parallel_cmake_failure_wins_over_a_single_config_problem(
+    mock_run, presets_file
+):
     def fake_run(cmd, **kwargs):
         return MagicMock(returncode=2 if cmd[3] == "clang-18" else 0, stdout="")
 
     mock_run.side_effect = fake_run
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
-        result = main(["run-user-workflows", "-i", str(path), "-j", "2"])
+    _write_cache(presets_file.parent, SINGLE_CONFIG_CACHE)
+    result = main(["run-user-workflows", "-i", str(presets_file), "-j", "2"])
     assert result == 2
 
 
 @patch("tools.run_user_workflows.subprocess.run")
-def test_parallel_group_stops_after_a_single_config_workflow(mock_run):
+def test_parallel_group_stops_after_a_single_config_workflow(mock_run, presets_file):
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = _write_presets(tmpdir)
-        _write_cache(tmpdir, SINGLE_CONFIG_CACHE)
-        main(["run-user-workflows", "-i", str(path), "-j", "2", "-m", "gcc"])
+    _write_cache(presets_file.parent, SINGLE_CONFIG_CACHE)
+    main(["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc"])
     ran = [c.args[0][3] for c in mock_run.call_args_list]
     assert ran == ["gcc-14"]
