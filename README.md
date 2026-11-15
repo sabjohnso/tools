@@ -103,7 +103,6 @@ Options:
 -o, --output-file FILE   Output path (default: CMakeUserPresets.json)
 --stdout                 Print to stdout instead of writing a file
 --replace-existing       Overwrite the output file if it exists
---shared-build-directory All presets share the same build directory
 --test-jobs N            Number of parallel test jobs (default: 1)
 ```
 

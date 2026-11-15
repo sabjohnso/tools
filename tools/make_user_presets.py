@@ -50,20 +50,6 @@ def make_command_line_parser(prog):
         help="Dump the user presets to stdout instead of a file",
     )
     parser.add_argument(
-        "--shared-build-directory",
-        action="store_true",
-        default=False,
-        help="All presets share the same build directory",
-    )
-
-    parser.add_argument(
-        "--shared-devel-build-directory",
-        action="store_true",
-        default=False,
-        help="Normal and `devel` builds share the same directory ",
-    )
-
-    parser.add_argument(
         "--replace-existing",
         action="store_true",
         default=False,
@@ -239,7 +225,7 @@ def make_configure_preset(config, compiler, parent_environment):
         "name": compiler["name"],
         "inherits": config.inherits,
         "hidden": False,
-        "binaryDir": binary_directory(config, compiler),
+        "binaryDir": binary_directory(compiler),
         "cacheVariables": custom_build_type_flags(),
         "environment": compiler_environment(compiler, parent_environment),
     }
@@ -311,11 +297,9 @@ def make_workflow_preset(workflow_name, suffix):
     }
 
 
-def binary_directory(config, compiler):
+def binary_directory(compiler):
     """Return the build directory path for the given compiler."""
-    return "${sourceDir}/build" + (
-        "-" + compiler["name"] if not config.shared_build_directory else ""
-    )
+    return "${sourceDir}/build-" + compiler["name"]
 
 
 COMPILER_SEARCH_DIRECTORIES = {

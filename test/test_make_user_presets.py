@@ -12,6 +12,7 @@ from tools.make_user_presets import (
     binary_directory,
     main,
     make_build_presets,
+    make_command_line_parser,
     make_configure_preset,
     make_output_data,
     make_test_presets,
@@ -42,7 +43,7 @@ def _compiler_with_add_paths():
 
 
 def _config(**overrides):
-    defaults = {"shared_build_directory": False, "test_jobs": 1, "inherits": "default"}
+    defaults = {"test_jobs": 1, "inherits": "default"}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -219,7 +220,6 @@ def _assert_unique_names(output_data):
 # Vary the options that change the output of make_output_data.
 _OUTPUT_CONFIGS = st.builds(
     _config,
-    shared_build_directory=st.booleans(),
     inherits=st.sampled_from(["default", "base"]),
 )
 
@@ -351,13 +351,8 @@ def test_workflow_presets_chain_configure_build_and_test_for_each_build_type():
 
 
 def test_binary_directory_contains_the_compiler_name():
-    directory = binary_directory(_config(), _valid_compiler())
+    directory = binary_directory(_valid_compiler())
     assert directory == "${sourceDir}/build-gcc-14"
-
-
-def test_shared_binary_directory_has_no_compiler_name():
-    config = _config(shared_build_directory=True)
-    assert binary_directory(config, _valid_compiler()) == "${sourceDir}/build"
 
 
 def _io_config(tmp_path, **overrides):
@@ -511,3 +506,30 @@ def test_main_uses_the_search_paths_of_the_real_parent_environment(
     environment = output["configurePresets"][0]["environment"]
     assert environment["LD_LIBRARY_PATH"].endswith(":$penv{LD_LIBRARY_PATH}")
     assert "$penv" not in environment["CPATH"]
+
+
+@pytest.mark.parametrize(
+    "removed_option", ["--shared-build-directory", "--shared-devel-build-directory"]
+)
+def test_parser_rejects_removed_build_directory_options(removed_option):
+    parser = make_command_line_parser("make-user-presets")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["compilers.json", removed_option])
+
+
+@given(_OUTPUT_CONFIGS, _SAFE_NAMES)
+def test_each_compiler_has_its_own_build_directory_for_all_its_workflows(config, names):
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
+    binary_dirs = {
+        preset["name"]: preset["binaryDir"]
+        for preset in output_data["configurePresets"]
+    }
+    assert len(set(binary_dirs.values())) == len(names)
+    for workflow in output_data["workflowPresets"]:
+        compiler = next(
+            name
+            for name in names
+            if workflow["name"] in {name, name + "-devel", name + "-debug"}
+        )
+        configure_step = workflow["steps"][0]["name"]
+        assert binary_dirs[configure_step] == "${sourceDir}/build-" + compiler
