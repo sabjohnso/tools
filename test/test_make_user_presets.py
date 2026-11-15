@@ -22,6 +22,15 @@ from tools.make_user_presets import (
 )
 
 
+# A parent environment that sets each search path variable.
+PARENT_ENVIRONMENT = {
+    "PATH": "/usr/bin",
+    "LIBRARY_PATH": "/opt/lib",
+    "LD_LIBRARY_PATH": "/opt/lib",
+    "CPATH": "/opt/include",
+}
+
+
 def _compiler_with_add_paths():
     return {
         "name": "gcc-14",
@@ -39,7 +48,9 @@ def _config(**overrides):
 
 
 def test_cpath_has_separator_before_penv():
-    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    preset = make_configure_preset(
+        _config(), _compiler_with_add_paths(), PARENT_ENVIRONMENT
+    )
     cpath = preset["environment"]["CPATH"]
     assert cpath == "/usr/local/gcc-14/include:$penv{CPATH}"
 
@@ -74,7 +85,7 @@ def test_unknown_key_raises():
 
 
 def test_configure_preset_sets_custom_build_type_flags():
-    preset = make_configure_preset(_config(), _valid_compiler())
+    preset = make_configure_preset(_config(), _valid_compiler(), PARENT_ENVIRONMENT)
     cache_vars = preset["cacheVariables"]
     assert cache_vars["CMAKE_C_FLAGS_RELWITHDEBINFO"] == "-O3 -g -DNDEBUG"
     assert cache_vars["CMAKE_CXX_FLAGS_RELWITHDEBINFO"] == "-O3 -g -DNDEBUG"
@@ -97,12 +108,14 @@ def test_devel_test_preset_uses_rel_with_asserts():
 
 
 def test_configure_preset_inherits_default_by_default():
-    preset = make_configure_preset(_config(), _valid_compiler())
+    preset = make_configure_preset(_config(), _valid_compiler(), PARENT_ENVIRONMENT)
     assert preset["inherits"] == "default"
 
 
 def test_configure_preset_inherits_from_option():
-    preset = make_configure_preset(_config(inherits="multi"), _valid_compiler())
+    preset = make_configure_preset(
+        _config(inherits="multi"), _valid_compiler(), PARENT_ENVIRONMENT
+    )
     assert preset["inherits"] == "multi"
 
 
@@ -230,13 +243,13 @@ def _existing_names(config, output_data, preset_type):
 
 @given(_OUTPUT_CONFIGS, _SAFE_NAMES)
 def test_output_preset_names_are_unique_in_each_preset_type(config, names):
-    output_data = make_output_data(config, _compilers(names))
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
     _assert_unique_names(output_data)
 
 
 @given(_OUTPUT_CONFIGS, _SAFE_NAMES)
 def test_each_workflow_step_refers_to_an_existing_preset(config, names):
-    output_data = make_output_data(config, _compilers(names))
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
     for workflow in output_data["workflowPresets"]:
         for step in workflow["steps"]:
             preset_type = _STEP_PRESET_TYPES[step["type"]]
@@ -245,7 +258,7 @@ def test_each_workflow_step_refers_to_an_existing_preset(config, names):
 
 @given(_OUTPUT_CONFIGS, _SAFE_NAMES)
 def test_each_preset_reference_refers_to_an_existing_preset(config, names):
-    output_data = make_output_data(config, _compilers(names))
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
     for preset_type, fields in _REFERENCE_FIELDS.items():
         for preset in output_data[preset_type]:
             for field, target_type in fields.items():
@@ -256,7 +269,7 @@ def test_each_preset_reference_refers_to_an_existing_preset(config, names):
 
 @given(_OUTPUT_CONFIGS, _SAFE_NAMES)
 def test_output_has_three_workflows_for_each_compiler(config, names):
-    output_data = make_output_data(config, _compilers(names))
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
     expected = {name + suffix for name in names for suffix in ["", "-devel", "-debug"]}
     assert set(_preset_names(output_data, "workflowPresets")) == expected
 
@@ -281,33 +294,41 @@ def test_main_rejects_colliding_names_or_writes_unique_names(tmp_path, names):
 
 
 def test_configure_preset_with_add_paths_prepends_bin_to_path():
-    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    preset = make_configure_preset(
+        _config(), _compiler_with_add_paths(), PARENT_ENVIRONMENT
+    )
     assert preset["environment"]["PATH"] == "/usr/local/gcc-14/bin:$penv{PATH}"
 
 
 def test_configure_preset_with_add_paths_prepends_lib_dirs_to_library_path():
-    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    preset = make_configure_preset(
+        _config(), _compiler_with_add_paths(), PARENT_ENVIRONMENT
+    )
     assert preset["environment"]["LIBRARY_PATH"] == (
         "/usr/local/gcc-14/lib:/usr/local/gcc-14/lib64:$penv{LIBRARY_PATH}"
     )
 
 
 def test_configure_preset_with_add_paths_prepends_lib_dirs_to_ld_library_path():
-    preset = make_configure_preset(_config(), _compiler_with_add_paths())
+    preset = make_configure_preset(
+        _config(), _compiler_with_add_paths(), PARENT_ENVIRONMENT
+    )
     assert preset["environment"]["LD_LIBRARY_PATH"] == (
         "/usr/local/gcc-14/lib:/usr/local/gcc-14/lib64:$penv{LD_LIBRARY_PATH}"
     )
 
 
 def test_configure_preset_with_add_paths_uses_bare_compiler_names():
-    environment = make_configure_preset(_config(), _compiler_with_add_paths())[
-        "environment"
-    ]
+    environment = make_configure_preset(
+        _config(), _compiler_with_add_paths(), PARENT_ENVIRONMENT
+    )["environment"]
     assert (environment["CC"], environment["CXX"]) == ("gcc", "g++")
 
 
 def test_configure_preset_without_add_paths_uses_full_compiler_paths():
-    environment = make_configure_preset(_config(), _valid_compiler())["environment"]
+    environment = make_configure_preset(
+        _config(), _valid_compiler(), PARENT_ENVIRONMENT
+    )["environment"]
     assert environment == {
         "CC": "/usr/local/gcc-14/bin/gcc",
         "CXX": "/usr/local/gcc-14/bin/g++",
@@ -412,3 +433,81 @@ def test_main_writes_presets_for_each_compiler_from_input_to_output_file(tmp_pat
     clang = _configure_preset_named(output_data, "clang-18")
     assert clang["binaryDir"] == "${sourceDir}/build-clang-18"
     assert clang["environment"]["CXX"] == "/opt/clang-18/bin/g++"
+
+
+SEARCH_PATH_VARIABLES = ["PATH", "LIBRARY_PATH", "LD_LIBRARY_PATH", "CPATH"]
+
+# Each variable of the parent environment is missing, empty, or set.
+_PARENT_ENVIRONMENTS = st.dictionaries(
+    st.sampled_from(SEARCH_PATH_VARIABLES), st.sampled_from(["", "/parent"])
+)
+
+
+@given(_PARENT_ENVIRONMENTS)
+def test_search_paths_have_no_empty_element(parent_environment):
+    preset = make_configure_preset(
+        _config(), _compiler_with_add_paths(), parent_environment
+    )
+    for variable in SEARCH_PATH_VARIABLES:
+        value = _expand_penv(preset["environment"][variable], parent_environment)
+        assert "" not in value.split(":")
+
+
+# Replace each $penv{VAR} with its parent value, as CMake does.
+def _expand_penv(value, parent_environment):
+    for variable in SEARCH_PATH_VARIABLES:
+        value = value.replace(
+            f"$penv{{{variable}}}", parent_environment.get(variable, "")
+        )
+    return value
+
+
+# The compiler directories of each search path variable, from the README.
+EXPECTED_DIRECTORIES = {
+    "PATH": ["bin"],
+    "LIBRARY_PATH": ["lib", "lib64"],
+    "LD_LIBRARY_PATH": ["lib", "lib64"],
+    "CPATH": ["include"],
+}
+
+_ROOTS = st.text(alphabet="abc_-", min_size=1, max_size=8).map(lambda s: "/opt/" + s)
+
+
+@given(_ROOTS, _PARENT_ENVIRONMENTS)
+def test_search_path_is_compiler_directories_then_parent_value_if_set(
+    root, parent_environment
+):
+    compiler = _compiler_with_add_paths() | {"root": root}
+    environment = make_configure_preset(_config(), compiler, parent_environment)[
+        "environment"
+    ]
+    for variable, directories in EXPECTED_DIRECTORIES.items():
+        expected = [f"{root}/{directory}" for directory in directories]
+        if parent_environment.get(variable):
+            expected.append(f"$penv{{{variable}}}")
+        assert environment[variable] == ":".join(expected)
+
+
+@given(_PARENT_ENVIRONMENTS, _PARENT_ENVIRONMENTS)
+def test_environment_without_add_paths_does_not_depend_on_the_parent(first, second):
+    environment = make_configure_preset(_config(), _valid_compiler(), first)[
+        "environment"
+    ]
+    other = make_configure_preset(_config(), _valid_compiler(), second)["environment"]
+    assert environment == other
+    assert set(environment) == {"CC", "CXX"}
+
+
+def test_main_uses_the_search_paths_of_the_real_parent_environment(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/parent/lib")
+    monkeypatch.delenv("CPATH", raising=False)
+    compilers = _write_project(
+        tmp_path, "Ninja Multi-Config", [_compiler_with_add_paths()]
+    )
+    assert _run_main(tmp_path, compilers) == 0
+    output = json.loads((tmp_path / "CMakeUserPresets.json").read_text())
+    environment = output["configurePresets"][0]["environment"]
+    assert environment["LD_LIBRARY_PATH"].endswith(":$penv{LD_LIBRARY_PATH}")
+    assert "$penv" not in environment["CPATH"]

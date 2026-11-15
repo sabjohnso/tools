@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Generate CMakeUserPresets.json from a compiler specification file."""
 
+import os
 import sys
 import json
 import importlib.resources
@@ -103,7 +104,7 @@ def run(config):
     input_data = read_input_data(config)
     validate_schema(input_data)
     validate_project_generator(config)
-    output_data = make_output_data(config, input_data)
+    output_data = make_output_data(config, input_data, os.environ)
     write_output_data(config, output_data)
 
 
@@ -148,21 +149,26 @@ def write_output_data(config, output_data):
             json.dump(output_data, out, indent=4)
 
 
-def make_output_data(config, input_data):
+def make_output_data(config, input_data, parent_environment):
     """Assemble the complete CMakeUserPresets output structure."""
     return {
         "version": 6,
         "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
-        "configurePresets": make_configure_presets(config, input_data),
+        "configurePresets": make_configure_presets(
+            config, input_data, parent_environment
+        ),
         "buildPresets": make_build_presets(config, input_data),
         "testPresets": make_test_presets(config, input_data),
         "workflowPresets": make_workflow_presets(config, input_data),
     }
 
 
-def make_configure_presets(config, input_data):
+def make_configure_presets(config, input_data, parent_environment):
     """Return configure presets for all compilers."""
-    return [make_configure_preset(config, compiler) for compiler in input_data]
+    return [
+        make_configure_preset(config, compiler, parent_environment)
+        for compiler in input_data
+    ]
 
 
 def make_build_presets(config, input_data):
@@ -227,7 +233,7 @@ def make_test_preset(workflow_name, suffix, configuration):
     }
 
 
-def make_configure_preset(config, compiler):
+def make_configure_preset(config, compiler, parent_environment):
     """Return a single configure preset for the given compiler."""
     return {
         "name": compiler["name"],
@@ -235,24 +241,43 @@ def make_configure_preset(config, compiler):
         "hidden": False,
         "binaryDir": binary_directory(config, compiler),
         "cacheVariables": custom_build_type_flags(),
-        "environment": (
-            {
-                "PATH": f"{compiler['root']}/bin:" + "$penv{PATH}",
-                "LIBRARY_PATH": f"{compiler['root']}/lib:{compiler['root']}/lib64:"
-                + "$penv{LIBRARY_PATH}",
-                "LD_LIBRARY_PATH": f"{compiler['root']}/lib:{compiler['root']}/lib64:"
-                + "$penv{LD_LIBRARY_PATH}",
-                "CPATH": f"{compiler['root']}/include:" + "$penv{CPATH}",
-                "CC": compiler["cc"],
-                "CXX": compiler["cxx"],
-            }
-            if "addPaths" in compiler and compiler["addPaths"]
-            else {
-                "CC": f"{compiler['root']}/bin/{compiler['cc']}",
-                "CXX": f"{compiler['root']}/bin/{compiler['cxx']}",
-            }
-        ),
+        "environment": compiler_environment(compiler, parent_environment),
     }
+
+
+def compiler_environment(compiler, parent_environment):
+    """Return the environment variables that select the compiler."""
+    if compiler.get("addPaths", False):
+        return add_paths_environment(compiler, parent_environment)
+    return {
+        "CC": f"{compiler['root']}/bin/{compiler['cc']}",
+        "CXX": f"{compiler['root']}/bin/{compiler['cxx']}",
+    }
+
+
+def add_paths_environment(compiler, parent_environment):
+    """Return an environment that puts the compiler directories first."""
+    root = compiler["root"]
+    search_paths = {
+        variable: search_path(
+            [f"{root}/{directory}" for directory in directories],
+            variable,
+            parent_environment,
+        )
+        for variable, directories in COMPILER_SEARCH_DIRECTORIES.items()
+    }
+    return search_paths | {"CC": compiler["cc"], "CXX": compiler["cxx"]}
+
+
+def search_path(directories, variable, parent_environment):
+    """Return the directories, then the parent variable if it has a value.
+
+    An empty element in a search path means the current directory, so the
+    parent variable is added only when the parent environment gives it a value.
+    """
+    if parent_environment.get(variable):
+        return ":".join([*directories, f"$penv{{{variable}}}"])
+    return ":".join(directories)
 
 
 def custom_build_type_flags():
@@ -292,6 +317,13 @@ def binary_directory(config, compiler):
         "-" + compiler["name"] if not config.shared_build_directory else ""
     )
 
+
+COMPILER_SEARCH_DIRECTORIES = {
+    "PATH": ["bin"],
+    "LIBRARY_PATH": ["lib", "lib64"],
+    "LD_LIBRARY_PATH": ["lib", "lib64"],
+    "CPATH": ["include"],
+}
 
 MISSING_INPUT_ERROR = """
 Could not find input file: {input_file}

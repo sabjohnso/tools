@@ -72,6 +72,13 @@ Each compiler requires:
 | `cxx`      | C++ compiler executable name                         |
 | `addPaths` | *(optional)* Add compiler dirs to environment paths  |
 
+With `addPaths`, the compiler directories come first in `PATH`, `LIBRARY_PATH`,
+`LD_LIBRARY_PATH` and `CPATH`. The preset keeps the value of a variable from
+the parent environment only if that variable has a value when you run
+`make-user-presets`. An empty element in a search path means the current
+directory, so the tool does not write one. If you set one of these variables
+later, run `make-user-presets` again.
+
 ### 2. Generate presets
 
 ```bash
