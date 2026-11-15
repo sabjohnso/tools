@@ -151,7 +151,10 @@ format-cxx-files --clang-format clang-format-18
 ```
 
 Finds all C++ source files (`.cc`, `.cpp`, `.cxx`, `.C`, `.hpp`, `.hxx`,
-`.ixx`) and formats them with clang-format.
+`.ixx`) and formats them with clang-format. It skips each CMake build
+directory, which it identifies by its `CMakeCache.txt`, so sources that
+`FetchContent` downloads stay unchanged. It runs clang-format on batches of
+files, and it returns 0 when it finds no files.
 
 ## Typical Workflow
 

@@ -1,8 +1,9 @@
 """Tests for the C++ file formatter."""
 
+import math
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from hypothesis import given
@@ -48,7 +49,7 @@ def test_main_returns_returncode_of_failed_formatter(tmp_path_factory, returncod
 def test_get_source_files_does_not_change_cwd(tmp_path):
     (tmp_path / "hello.cpp").touch()
     original_cwd = Path.cwd()
-    get_source_files(SimpleNamespace(source_tree=tmp_path))
+    get_source_files(tmp_path)
     assert Path.cwd() == original_cwd
 
 
@@ -60,27 +61,56 @@ STEM_PARTS = st.text(alphabet="abcxyz_", min_size=1, max_size=5) | st.sampled_fr
 STEMS = st.lists(STEM_PARTS, min_size=1, max_size=3).map(".".join)
 
 
+# Directories for files, and directories that can hold a CMakeCache.txt.
+DIRECTORIES = [
+    "",
+    "src",
+    "src/detail",
+    "include",
+    "build",
+    "build/_deps/x",
+    "src/build",
+]
+
+
 @given(
     names=st.sets(
         st.tuples(
-            st.sampled_from(["", "src", "src/detail", "include"]),
+            st.sampled_from(DIRECTORIES),
             STEMS,
             st.sampled_from(CXX_EXTENSIONS + OTHER_EXTENSIONS),
         ),
         max_size=12,
-    )
+    ),
+    build_directories=st.sets(st.sampled_from(DIRECTORIES), max_size=3),
 )
-def test_get_source_files_finds_exactly_files_with_cxx_extensions(
-    tmp_path_factory, names
+def test_get_source_files_finds_cxx_files_outside_build_directories(
+    tmp_path_factory, names, build_directories
 ):
     tree = tmp_path_factory.mktemp("tree")
     files = {
         _touch(tree / directory / f"{stem}{suffix}")
         for directory, stem, suffix in names
     }
-    expected = sorted(path for path in files if path.suffix in CXX_EXTENSIONS)
-    found = sorted(get_source_files(SimpleNamespace(source_tree=tree)))
-    assert found == expected
+    for directory in build_directories:
+        _touch(tree / directory / "CMakeCache.txt")
+    expected = sorted(
+        path
+        for path in files
+        if path.suffix in CXX_EXTENSIONS
+        and not _below_build_directory(path, tree, build_directories)
+    )
+    assert sorted(get_source_files(tree)) == expected
+
+
+# A file is below a build directory if one of its directories, other than the
+# root of the tree, holds a CMakeCache.txt.
+def _below_build_directory(path, tree, build_directories):
+    directories = path.relative_to(tree).parents
+    return any(
+        directory != Path(".") and str(directory) in build_directories
+        for directory in directories
+    )
 
 
 @needs_clang_format
@@ -89,7 +119,7 @@ def test_format_files_formats_only_the_given_files(tmp_path):
     other_file = tmp_path / "other.cpp"
     _write(given_file, BAD_SOURCE)
     _write(other_file, BAD_SOURCE)
-    format_files(SimpleNamespace(clang_format=Path(CLANG_FORMAT)), [given_file])
+    format_files(Path(CLANG_FORMAT), [given_file])
     assert given_file.read_text() != BAD_SOURCE
     assert other_file.read_text() == BAD_SOURCE
 
@@ -123,28 +153,43 @@ def test_main_keeps_formatted_files_unchanged(tmp_path):
     assert source.read_text() == formatted
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: format-cxx-files fails when it finds no files, "
-    "and it formats files in build directories",
-)
-@needs_clang_format
 def test_main_returns_zero_for_empty_source_tree(tmp_path):
     assert main(_command_line(tmp_path)) == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: format-cxx-files fails when it finds no files, "
-    "and it formats files in build directories",
-)
 @needs_clang_format
 def test_main_does_not_format_files_in_build_directories(tmp_path):
     _write(tmp_path / "main.cpp", BAD_SOURCE)
+    # A CMakeCache.txt file marks a CMake build directory.
+    _touch(tmp_path / "build-gcc" / "CMakeCache.txt")
     dependency = tmp_path / "build-gcc" / "_deps" / "fmt-src" / "format.cc"
     _write(dependency, BAD_SOURCE)
     main(_command_line(tmp_path))
     assert dependency.read_text() == BAD_SOURCE
+
+
+def test_main_reports_a_missing_formatter(tmp_path, capsys):
+    _write(tmp_path / "main.cpp", BAD_SOURCE)
+    missing = tmp_path / "no-such-clang-format"
+    assert main(_command_line(tmp_path, missing)) != 0
+    assert str(missing) in capsys.readouterr().err
+
+
+@given(
+    st.integers(min_value=1, max_value=5).flatmap(
+        lambda size: st.tuples(st.just(size), st.integers(0, 4 * size))
+    )
+)
+def test_format_files_runs_the_formatter_on_consecutive_batches(size_and_count):
+    batch_size, count = size_and_count
+    files = [Path(f"f{index}.cpp") for index in range(count)]
+    with patch("tools.format_cxx_files.subprocess.run") as run:
+        format_files(Path("clang-format"), files, batch_size)
+    commands = [call.args[0] for call in run.call_args_list]
+    assert all(command[:2] == [Path("clang-format"), "-i"] for command in commands)
+    assert all(0 < len(command[2:]) <= batch_size for command in commands)
+    assert [file for command in commands for file in command[2:]] == files
+    assert len(commands) == math.ceil(count / batch_size)
 
 
 def _command_line(source_tree, clang_format=CLANG_FORMAT):
