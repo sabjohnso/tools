@@ -33,12 +33,12 @@ def _sample_loop(pid, samples, stop_event):
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return
     prev_time = time.monotonic()
-    prev_cpu_time = _total_cpu_time(proc)
+    prev_cpu_time = process_tree_cpu_seconds(proc)
     while not stop_event.is_set():
         stop_event.wait(0.5)
         try:
             now = time.monotonic()
-            cpu_time = _total_cpu_time(proc)
+            cpu_time = process_tree_cpu_seconds(proc)
             rss = _total_rss(proc)
             cpu = compute_cpu_percent(prev_cpu_time, cpu_time, now - prev_time)
             samples.append((cpu, rss))
@@ -55,17 +55,29 @@ def compute_cpu_percent(prev_cpu_time, cpu_time, dt):
     return ((cpu_time - prev_cpu_time) / dt) * 100.0
 
 
-def _total_cpu_time(proc):
-    """Return total CPU seconds for a process and its children."""
-    times = proc.cpu_times()
-    total = times.user + times.system
+def process_tree_cpu_seconds(proc):
+    """Return total CPU seconds for a process tree, stopped children included."""
+    total = cumulative_cpu_seconds(proc.cpu_times())
     for child in proc.children(recursive=True):
         try:
-            ct = child.cpu_times()
-            total += ct.user + ct.system
+            total += cumulative_cpu_seconds(child.cpu_times())
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return total
+
+
+def cumulative_cpu_seconds(times):
+    """Return the CPU seconds of a process and of the children it waited for.
+
+    When a child process stops and its parent waits for it, the CPU time of
+    the child moves into children_user and children_system of the parent.
+    Thus this sum does not decrease when a child process stops. On some
+    platforms psutil does not give these fields, so they count as 0.
+    """
+    children = getattr(times, "children_user", 0.0) + getattr(
+        times, "children_system", 0.0
+    )
+    return times.user + times.system + children
 
 
 def _total_rss(proc):

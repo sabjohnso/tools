@@ -3,6 +3,7 @@
 import math
 import re
 import sys
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import example, given
@@ -11,10 +12,12 @@ from hypothesis import strategies as st
 from tools.resource_monitor import (
     compute_cpu_percent,
     compute_resource_stats,
+    cumulative_cpu_seconds,
     format_bytes,
     format_duration,
     format_resource_table,
     monitor_subprocess,
+    process_tree_cpu_seconds,
 )
 
 # The child process uses CPU for 1.5 s.
@@ -180,17 +183,99 @@ def test_monitor_subprocess_reports_nonzero_cpu():
     assert stats["max_cpu"] > 0.0, "CPU load should be non-zero for a busy process"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: The CPU measurement gives negative values "
-    "and misses short child processes",
-)
-def test_cumulative_cpu_time_does_not_decrease_with_short_children():
+# One run of SERIAL_CHILDREN serves both tests. The xdist group keeps both
+# tests on one worker, so the run occurs once.
+serial_children_run = pytest.mark.xdist_group("serial-children")
+
+
+@pytest.fixture(scope="module")
+def serial_children_monitoring():
+    _, samples, elapsed = monitor_subprocess([sys.executable, "-c", SERIAL_CHILDREN])
+    return samples, elapsed
+
+
+@serial_children_run
+def test_cumulative_cpu_time_does_not_decrease_with_short_children(
+    serial_children_monitoring,
+):
     # A sample is (change of cumulative CPU time) / dt, and dt is more than 0.
     # Thus a negative sample shows that the cumulative CPU time decreased.
-    _, samples, _ = monitor_subprocess([sys.executable, "-c", SERIAL_CHILDREN])
+    samples, _ = serial_children_monitoring
     negative = [cpu for cpu, _ in samples if cpu < 0.0]
     assert negative == []
+
+
+@serial_children_run
+def test_monitor_counts_the_cpu_time_of_short_children(serial_children_monitoring):
+    # The four children use about 2.0 s of CPU time in all. The last interval
+    # after the final sample is not measured, so expect 1.0 s or more.
+    samples, elapsed = serial_children_monitoring
+    mean_cpu = compute_resource_stats(samples)["mean_cpu"]
+    assert mean_cpu / 100.0 * elapsed >= 1.0
+
+
+_CPU_SECONDS = st.floats(min_value=0.0, max_value=1e6)
+
+
+# A fake process for process_tree_cpu_seconds. It has the psutil methods that
+# the function uses: cpu_times() and children(recursive=True).
+class _FakeProcess:
+    def __init__(self, user, system, children=()):
+        self.times = SimpleNamespace(
+            user=user, system=system, children_user=0.0, children_system=0.0
+        )
+        self.live_children = list(children)
+
+    def cpu_times(self):
+        return self.times
+
+    def children(self, recursive=False):
+        descendants = []
+        for child in self.live_children:
+            descendants.append(child)
+            if recursive:
+                descendants.extend(child.children(recursive=True))
+        return descendants
+
+
+# The operating system adds the CPU time of a stopped child, and of the
+# children that it waited for, to the parent when the parent waits for it.
+def _wait_for(parent, child):
+    parent.times.children_user += child.times.user + child.times.children_user
+    parent.times.children_system += child.times.system + child.times.children_system
+    parent.live_children.remove(child)
+
+
+@given(st.lists(_CPU_SECONDS, min_size=6, max_size=6))
+def test_process_tree_cpu_seconds_does_not_change_when_children_stop(seconds):
+    grandchild = _FakeProcess(seconds[0], seconds[1])
+    child = _FakeProcess(seconds[2], seconds[3], [grandchild])
+    parent = _FakeProcess(seconds[4], seconds[5], [child])
+    before = process_tree_cpu_seconds(parent)
+    _wait_for(child, grandchild)
+    assert process_tree_cpu_seconds(parent) == pytest.approx(before)
+    _wait_for(parent, child)
+    assert process_tree_cpu_seconds(parent) == pytest.approx(before)
+
+
+@given(_CPU_SECONDS, _CPU_SECONDS, _CPU_SECONDS, _CPU_SECONDS)
+def test_cumulative_cpu_seconds_adds_the_children_that_the_process_waited_for(
+    user, system, children_user, children_system
+):
+    times = SimpleNamespace(
+        user=user,
+        system=system,
+        children_user=children_user,
+        children_system=children_system,
+    )
+    expected = user + system + children_user + children_system
+    assert cumulative_cpu_seconds(times) == pytest.approx(expected)
+
+
+@given(_CPU_SECONDS, _CPU_SECONDS)
+def test_cumulative_cpu_seconds_counts_missing_children_fields_as_zero(user, system):
+    times = SimpleNamespace(user=user, system=system)
+    assert cumulative_cpu_seconds(times) == user + system
 
 
 # --- compute_resource_stats ---
