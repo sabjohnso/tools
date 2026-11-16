@@ -1,6 +1,6 @@
 [project]
 name = "tools"
-version = "0.4.1"
+version = "0.5.0"
 description = "Dev tools for a variety of libraries"
 authors = [
     {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}

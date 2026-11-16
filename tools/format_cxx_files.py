@@ -8,6 +8,8 @@ from argparse import ArgumentParser
 from itertools import batched
 from pathlib import Path
 
+from tools.error_policy import add_stack_trace_option, run_tool
+
 CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".C", ".hpp", ".hxx", ".ixx"]
 
 # The number of files for one clang-format process. It keeps the command
@@ -16,16 +18,15 @@ FORMAT_BATCH_SIZE = 500
 
 
 def main(args):
-    """Run the formatter and return 0 on success."""
-    try:
-        config = process_command_line(args)
-        run(config)
-        return 0
-    except subprocess.CalledProcessError as e:
-        return e.returncode
-    except FileNotFoundError as e:
-        print(f"format-cxx-files: cannot run {e.filename or e}", file=sys.stderr)
-        return 1
+    """Run the tool with the error policy and return the exit code."""
+    return run_tool(execute, args)
+
+
+def execute(args):
+    """Run the formatter and return 0."""
+    config = process_command_line(args)
+    run(config)
+    return 0
 
 
 def process_command_line(args):
@@ -55,6 +56,7 @@ def make_command_line_parser(prog):
         default=Path("clang-format"),
         help="Path to the clang-format executable",
     )
+    add_stack_trace_option(parser)
     return parser
 
 

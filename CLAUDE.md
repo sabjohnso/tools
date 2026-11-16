@@ -19,6 +19,8 @@ tools/                  # Main package
   set_cmake_variable.py # Set CMake variables in workflow build directories
   resource_monitor.py   # Monitor subprocess CPU and RSS usage
   multi_config.py       # Detect multi-configuration generators in presets and caches
+  error_policy.py       # Error messages, exit codes and the --stack-trace option
+  errors.py             # Shared exception types (UserError)
   user_presets.py       # Find workflow facts in CMakeUserPresets.json
   build_documentation.py # Documentation builder (stub)
   compilers.schema.json # JSON Schema for compiler input validation
@@ -29,6 +31,7 @@ test/                   # Tests (pytest)
   test_resource_monitor.py
   test_set_cmake_variable.py
   test_multi_config.py
+  test_error_policy.py
   test_user_presets.py
   test_run_user_workflows.py
   test_cmake_integration.py  # Marked cmake; runs real CMake builds

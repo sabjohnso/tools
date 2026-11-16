@@ -8,6 +8,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from jsonschema import ValidationError
 
+from tools.errors import UserError
 from tools.make_user_presets import (
     binary_directory,
     main,
@@ -367,7 +368,7 @@ def _io_config(tmp_path, **overrides):
 
 
 def test_validate_input_rejects_a_missing_input_file(tmp_path):
-    with pytest.raises(RuntimeError, match="compilers.json"):
+    with pytest.raises(UserError, match="compilers.json"):
         validate_input(_io_config(tmp_path))
 
 
@@ -375,7 +376,7 @@ def test_validate_input_rejects_an_existing_output_file(tmp_path):
     config = _io_config(tmp_path)
     config.filename.write_text("[]")
     config.output_file.write_text("{}")
-    with pytest.raises(RuntimeError, match="--replace-existing"):
+    with pytest.raises(UserError, match="--replace-existing"):
         validate_input(config)
 
 

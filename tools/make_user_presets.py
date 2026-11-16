@@ -10,6 +10,8 @@ from pathlib import Path
 
 import jsonschema
 
+from tools.error_policy import add_stack_trace_option, run_tool
+from tools.errors import UserError
 from tools.multi_config import (
     SingleConfigError,
     find_generator,
@@ -18,14 +20,15 @@ from tools.multi_config import (
 
 
 def main(args):
-    """Run the preset generator and return 0 on success."""
-    try:
-        config = process_command_line(args)
-        run(config)
-        return 0
-    except Exception as e:
-        print(e, file=sys.stderr)
-        return 1
+    """Run the tool with the error policy and return the exit code."""
+    return run_tool(execute, args)
+
+
+def execute(args):
+    """Run the preset generator and return 0."""
+    config = process_command_line(args)
+    run(config)
+    return 0
 
 
 def process_command_line(args):
@@ -70,25 +73,26 @@ def make_command_line_parser(prog):
         default="default",
         help="The configure preset to inherit from (default: 'default')",
     )
+    add_stack_trace_option(parser)
     return parser
 
 
 def validate_input(config):
     """Validate that the input file exists and the output file is writable."""
     if not config.filename.exists():
-        raise RuntimeError(MISSING_INPUT_ERROR.format(input_file=config.filename))
+        raise UserError(MISSING_INPUT_ERROR.format(input_file=config.filename))
     if (
         config.output_file.exists()
         and not config.replace_existing
         and not config.stdout
     ):
-        raise RuntimeError(EXISTING_OUTPUT_ERROR.format(output_file=config.output_file))
+        raise UserError(EXISTING_OUTPUT_ERROR.format(output_file=config.output_file))
 
 
 def run(config):
     """Read, validate, transform, and write the user presets."""
     input_data = read_input_data(config)
-    validate_schema(input_data)
+    validate_input_data(input_data)
     validate_project_generator(config)
     output_data = make_output_data(config, input_data, os.environ)
     write_output_data(config, output_data)
@@ -108,9 +112,17 @@ def read_project_presets(config):
     """Read and return the CMakePresets.json next to the output file."""
     path = config.output_file.parent / "CMakePresets.json"
     if not path.exists():
-        raise RuntimeError(MISSING_PROJECT_PRESETS_ERROR.format(path=path))
+        raise UserError(MISSING_PROJECT_PRESETS_ERROR.format(path=path))
     with open(path, "r", encoding="utf-8") as inp:
         return json.load(inp)
+
+
+def validate_input_data(input_data):
+    """Raise UserError if the input data does not match the compiler schema."""
+    try:
+        validate_schema(input_data)
+    except jsonschema.ValidationError as error:
+        raise UserError(f"invalid compiler list: {error.message}") from error
 
 
 def validate_schema(input_data):

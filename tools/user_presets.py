@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tools.errors import UserError
+
 
 def build_directory(user_presets, workflow_name, source_dir):
     """Return the build directory of the configure step of a workflow."""
@@ -26,7 +28,7 @@ def get_configure_step_name(workflow):
     for step in workflow["steps"]:
         if step["type"] == "configure":
             return step["name"]
-    raise KeyError(f"No configure step in workflow: {workflow['name']}")
+    raise UserError(f"No configure step in workflow: {workflow['name']}")
 
 
 def resolve_binary_dir(binary_dir, source_dir):
@@ -39,4 +41,4 @@ def _find_by_name(presets, name):
     for preset in presets:
         if preset["name"] == name:
             return preset
-    raise KeyError(f"Preset not found: {name}")
+    raise UserError(f"Preset not found: {name}")

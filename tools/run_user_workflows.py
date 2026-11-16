@@ -14,22 +14,21 @@ from tools.resource_monitor import (
     format_resource_table,
     monitor_subprocess,
 )
+from tools.error_policy import add_stack_trace_option, run_tool
 from tools.multi_config import SingleConfigError, cache_is_multi_config
 from tools.user_presets import build_directory, get_configure_step_name
 
 
 def main(args):
-    """Run the user presets according to the input arguments and return
-    0 on success"""
-    try:
-        config = process_command_line(args)
-        run(config)
-        return 0
-    except subprocess.CalledProcessError as e:
-        return e.returncode
-    except SingleConfigError as e:
-        print(e, file=sys.stderr)
-        return 1
+    """Run the tool with the error policy and return the exit code."""
+    return run_tool(execute, args)
+
+
+def execute(args):
+    """Run the user presets according to the input arguments and return 0."""
+    config = process_command_line(args)
+    run(config)
+    return 0
 
 
 def process_command_line(args):
@@ -72,6 +71,7 @@ def make_command_line_parser(prog):
         default=1,
         help="Number of workflows to run in parallel (default: 1)",
     )
+    add_stack_trace_option(parser)
     return parser
 
 

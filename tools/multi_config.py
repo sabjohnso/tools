@@ -1,11 +1,13 @@
 """Tell whether CMake presets and caches use a multi-configuration generator."""
 
+from tools.errors import UserError
+
 MULTI_CONFIG_GENERATORS = ("Ninja Multi-Config", "Xcode")
 MULTI_CONFIG_GENERATOR_PREFIXES = ("Visual Studio",)
 GENERATOR_ENTRY = "CMAKE_GENERATOR:INTERNAL="
 
 
-class SingleConfigError(Exception):
+class SingleConfigError(UserError):
     """Report a build that does not use a multi-configuration generator."""
 
 

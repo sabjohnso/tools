@@ -6,6 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from tools.errors import UserError
 from tools.user_presets import build_directory, resolve_binary_dir
 
 path_parts = st.text(alphabet="abcdefgh-_", min_size=1, max_size=8)
@@ -34,7 +35,7 @@ def test_build_directory_uses_the_configure_step_of_the_workflow():
 
 
 def test_build_directory_rejects_an_unknown_workflow():
-    with pytest.raises(KeyError):
+    with pytest.raises(UserError, match="clang-18"):
         build_directory(_user_presets(), "clang-18", Path("/project"))
 
 

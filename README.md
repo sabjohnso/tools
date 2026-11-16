@@ -156,6 +156,25 @@ directory, which it identifies by its `CMakeCache.txt`, so sources that
 `FetchContent` downloads stay unchanged. It runs clang-format on batches of
 files, and it returns 0 when it finds no files.
 
+## Errors
+
+When a tool stops because of an error, it prints one line that starts with
+the name of the tool. It does not print a Python stack trace. The exit codes
+are:
+
+| Code | Meaning                                                         |
+|------|-----------------------------------------------------------------|
+| 0    | Success                                                         |
+| 1    | An error that you can correct, for example a missing file       |
+| 2    | An incorrect command line                                       |
+| 70   | An internal error (a defect in the tools)                       |
+| 130  | Interrupted with Ctrl+C                                         |
+
+If `cmake` or `clang-format` fails, the tool returns its exit code.
+
+To see the stack trace, add `--stack-trace` to the command line, or set
+`TOOLS_STACK_TRACE=1`. Do this when you report an internal error.
+
 ## Typical Workflow
 
 ```bash

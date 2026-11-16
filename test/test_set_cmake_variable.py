@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
+from tools.errors import UserError
+
 from tools.set_cmake_variable import (
     filter_workflow_names,
     main,
@@ -71,7 +73,7 @@ def test_make_cmake_command_multiple_definitions():
 
 def test_validate_definitions_raises_when_none():
     config = _config(Path("dummy"), definitions=[])
-    with pytest.raises(SystemExit):
+    with pytest.raises(UserError, match="-D"):
         validate_definitions(config)
 
 
@@ -168,11 +170,12 @@ def test_main_returns_returncode_on_failure(presets_file):
     assert result == 2
 
 
-def test_main_exits_without_cmake_call_when_no_definitions(presets_file):
+def test_main_reports_missing_definitions_without_cmake_call(presets_file, capsys):
     fake_cmake = _FakeCMake()
     with patch("tools.set_cmake_variable.subprocess.run", fake_cmake):
-        with pytest.raises(SystemExit):
-            main(["set-cmake-variable", "-i", str(presets_file)])
+        result = main(["set-cmake-variable", "-i", str(presets_file)])
+    assert result == 1
+    assert capsys.readouterr().err.startswith("set-cmake-variable: ")
     assert fake_cmake.commands == []
 
 

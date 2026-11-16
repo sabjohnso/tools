@@ -7,16 +7,21 @@ import sys
 from argparse import ArgumentParser
 from pathlib import Path
 
+from tools.error_policy import add_stack_trace_option, run_tool
+from tools.errors import UserError
+
 
 def main(args):
-    """Set cmake variables and return 0 on success, or returncode on failure."""
-    try:
-        config = process_command_line(args)
-        validate_definitions(config)
-        run(config)
-        return 0
-    except subprocess.CalledProcessError as e:
-        return e.returncode
+    """Run the tool with the error policy and return the exit code."""
+    return run_tool(execute, args)
+
+
+def execute(args):
+    """Set cmake variables according to the input arguments and return 0."""
+    config = process_command_line(args)
+    validate_definitions(config)
+    run(config)
+    return 0
 
 
 def process_command_line(args):
@@ -56,13 +61,14 @@ def make_command_line_parser(prog):
         default=[],
         help="CMake variable definition (VAR=VALUE)",
     )
+    add_stack_trace_option(parser)
     return parser
 
 
 def validate_definitions(config):
-    """Raise SystemExit if no definitions were provided."""
+    """Raise UserError if no definitions were provided."""
     if not config.definitions:
-        raise SystemExit("error: at least one -D definition is required")
+        raise UserError("at least one -D definition is required")
 
 
 def run(config):
@@ -148,7 +154,7 @@ def find_workflow(name, user_presets):
     for workflow in user_presets["workflowPresets"]:
         if workflow["name"] == name:
             return workflow
-    raise KeyError(f"Workflow preset not found: {name}")
+    raise UserError(f"Workflow preset not found: {name}")
 
 
 def get_configure_step_name(workflow):
@@ -156,7 +162,7 @@ def get_configure_step_name(workflow):
     for step in workflow["steps"]:
         if step["type"] == "configure":
             return step["name"]
-    raise KeyError(f"No configure step in workflow: {workflow['name']}")
+    raise UserError(f"No configure step in workflow: {workflow['name']}")
 
 
 if __name__ == "__main__":

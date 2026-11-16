@@ -6,9 +6,17 @@ import sys
 from argparse import ArgumentParser
 from pathlib import Path
 
+from tools.error_policy import add_stack_trace_option, run_tool
+from tools.errors import UserError
+
 
 def main(args):
-    """Clear cmake caches according to the input arguments and return 0 on success."""
+    """Run the tool with the error policy and return the exit code."""
+    return run_tool(execute, args)
+
+
+def execute(args):
+    """Clear cmake caches according to the input arguments and return 0."""
     config = process_command_line(args)
     run(config)
     return 0
@@ -44,6 +52,7 @@ def make_command_line_parser(prog):
         default=None,
         help="A regular expression matching workflow presets to exclude",
     )
+    add_stack_trace_option(parser)
     return parser
 
 
@@ -120,7 +129,7 @@ def find_workflow(name, user_presets):
     for workflow in user_presets["workflowPresets"]:
         if workflow["name"] == name:
             return workflow
-    raise KeyError(f"Workflow preset not found: {name}")
+    raise UserError(f"Workflow preset not found: {name}")
 
 
 def get_configure_step_name(workflow):
@@ -128,7 +137,7 @@ def get_configure_step_name(workflow):
     for step in workflow["steps"]:
         if step["type"] == "configure":
             return step["name"]
-    raise KeyError(f"No configure step in workflow: {workflow['name']}")
+    raise UserError(f"No configure step in workflow: {workflow['name']}")
 
 
 if __name__ == "__main__":
