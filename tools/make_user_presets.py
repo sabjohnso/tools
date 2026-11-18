@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import importlib.resources
+from collections import Counter
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -95,7 +96,35 @@ def run(config):
     validate_input_data(input_data)
     validate_project_generator(config)
     output_data = make_output_data(config, input_data, os.environ)
+    validate_preset_names(config, output_data)
     write_output_data(config, output_data)
+
+
+def validate_preset_names(config, output_data):
+    """Raise UserError if two presets of one type would have the same name."""
+    collisions = duplicate_preset_names(output_data) | inherited_preset_names(
+        config, output_data
+    )
+    if collisions:
+        names = ", ".join(sorted(collisions))
+        raise UserError(COLLIDING_NAMES_ERROR.format(names=names))
+
+
+def duplicate_preset_names(output_data):
+    """Return the names that occur more than once in one type of preset."""
+    return {
+        name
+        for key, presets in output_data.items()
+        if key.endswith("Presets")
+        for name, count in Counter(preset["name"] for preset in presets).items()
+        if count > 1
+    }
+
+
+def inherited_preset_names(config, output_data):
+    """Return the configure preset names that CMakePresets.json already has."""
+    configure_names = {preset["name"] for preset in output_data["configurePresets"]}
+    return configure_names & {config.inherits}
 
 
 def validate_project_generator(config):
@@ -328,6 +357,12 @@ Could not find input file: {input_file}
 EXISTING_OUTPUT_ERROR = """
 The output file ({output_file}) already exists.  To
 overwrite it, provide the switch --replace-existing.
+"""
+
+COLLIDING_NAMES_ERROR = """
+These preset names occur more than once: {names}.
+Change the compiler names, so that each generated preset name is unique and
+is not the name of the inherited preset.
 """
 
 MISSING_PROJECT_PRESETS_ERROR = """

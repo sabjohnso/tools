@@ -16,6 +16,7 @@ from tools.make_user_presets import (
     make_command_line_parser,
     make_configure_preset,
     make_output_data,
+    validate_preset_names,
     make_test_presets,
     make_workflow_presets,
     validate_input,
@@ -275,11 +276,6 @@ def test_output_has_three_workflows_for_each_compiler(config, names):
     assert set(_preset_names(output_data, "workflowPresets")) == expected
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: Duplicate compiler names or reserved names make an "
-    "invalid presets file",
-)
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(names=_COLLIDING_NAMES)
 def test_main_rejects_colliding_names_or_writes_unique_names(tmp_path, names):
@@ -534,3 +530,55 @@ def test_each_compiler_has_its_own_build_directory_for_all_its_workflows(config,
         )
         configure_step = workflow["steps"][0]["name"]
         assert binary_dirs[configure_step] == "${sourceDir}/build-" + compiler
+
+
+def test_main_names_the_colliding_presets(tmp_path, capsys):
+    compilers = _compilers(["gcc", "gcc-devel"])
+    input_file = _write_project(tmp_path, "Ninja Multi-Config", compilers)
+    assert _run_main(tmp_path, input_file) == 1
+    err = capsys.readouterr().err
+    assert "occur more than once: gcc-devel." in err
+    assert not (tmp_path / "CMakeUserPresets.json").exists()
+
+
+@pytest.mark.parametrize("name", ["default", "baseBuild", "baseTest"])
+def test_main_rejects_a_reserved_compiler_name(name, tmp_path, capsys):
+    input_file = _write_project(tmp_path, "Ninja Multi-Config", _compilers([name]))
+    assert _run_main(tmp_path, input_file) == 1
+    assert f"occur more than once: {name}." in capsys.readouterr().err
+
+
+_NAMES_THAT_CAN_COLLIDE = st.lists(
+    st.sampled_from(
+        [
+            "a",
+            "a-devel",
+            "a-debug",
+            "b",
+            "ab",
+            "baseBuild",
+            "baseTest",
+            "default",
+            "base",
+        ]
+    ),
+    max_size=5,
+)
+
+
+def _names_are_valid(config, output_data):
+    for preset_type in _PRESET_TYPES:
+        names = _preset_names(output_data, preset_type)
+        if len(names) != len(set(names)):
+            return False
+    return config.inherits not in _preset_names(output_data, "configurePresets")
+
+
+@given(_OUTPUT_CONFIGS, _NAMES_THAT_CAN_COLLIDE)
+def test_preset_names_are_rejected_exactly_when_they_collide(config, names):
+    output_data = make_output_data(config, _compilers(names), PARENT_ENVIRONMENT)
+    if _names_are_valid(config, output_data):
+        validate_preset_names(config, output_data)
+    else:
+        with pytest.raises(UserError):
+            validate_preset_names(config, output_data)
