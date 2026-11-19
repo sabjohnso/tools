@@ -1,6 +1,10 @@
 """Tests for the CMake user presets generator."""
 
+import io
 import json
+from contextlib import redirect_stdout
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -45,7 +49,7 @@ def _compiler_with_add_paths():
 
 
 def _config(**overrides):
-    defaults = {"test_jobs": 1, "inherits": "default"}
+    defaults = {"test_jobs": 1, "build_jobs": 16, "inherits": "default"}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -582,3 +586,130 @@ def test_preset_names_are_rejected_exactly_when_they_collide(config, names):
     else:
         with pytest.raises(UserError):
             validate_preset_names(config, output_data)
+
+
+# The build types in the order of the output: workflow suffix and CMake
+# build type.
+_BUILD_TYPES = [("", "Release"), ("-devel", "RelWithAsserts"), ("-debug", "Debug")]
+
+_CACHE_VARIABLES = {
+    "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
+    "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
+    "CMAKE_C_FLAGS_RELWITHASSERTS": "-O3",
+    "CMAKE_CXX_FLAGS_RELWITHASSERTS": "-O3",
+}
+
+
+def _expected_configure_preset(config, compiler):
+    return {
+        "name": compiler["name"],
+        "inherits": config.inherits,
+        "hidden": False,
+        "binaryDir": "${sourceDir}/build-" + compiler["name"],
+        "cacheVariables": _CACHE_VARIABLES,
+        "environment": {
+            "CC": f"{compiler['root']}/bin/{compiler['cc']}",
+            "CXX": f"{compiler['root']}/bin/{compiler['cxx']}",
+        },
+    }
+
+
+def _expected_step_presets(base, names):
+    return [
+        {
+            "name": name + suffix,
+            "inherits": base,
+            "configuration": build_type,
+            "configurePreset": name,
+        }
+        for suffix, build_type in _BUILD_TYPES
+        for name in names
+    ]
+
+
+def _expected_base_build(config):
+    return {
+        "name": "baseBuild",
+        "hidden": True,
+        "jobs": config.build_jobs,
+        "configurePreset": config.inherits,
+    }
+
+
+def _expected_base_test(config):
+    return {
+        "name": "baseTest",
+        "hidden": True,
+        "output": {"outputOnFailure": True},
+        "configurePreset": config.inherits,
+        "execution": {"jobs": config.test_jobs},
+    }
+
+
+def _expected_workflow_presets(names):
+    return [
+        {
+            "name": name + suffix,
+            "steps": [
+                {"type": "configure", "name": name},
+                {"type": "build", "name": name + suffix},
+                {"type": "test", "name": name + suffix},
+            ],
+        }
+        for suffix, _ in _BUILD_TYPES
+        for name in names
+    ]
+
+
+def _expected_output(config, compilers):
+    names = [compiler["name"] for compiler in compilers]
+    return {
+        "version": 6,
+        "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
+        "configurePresets": [
+            _expected_configure_preset(config, compiler) for compiler in compilers
+        ],
+        "buildPresets": [_expected_base_build(config)]
+        + _expected_step_presets("baseBuild", names),
+        "testPresets": [_expected_base_test(config)]
+        + _expected_step_presets("baseTest", names),
+        "workflowPresets": _expected_workflow_presets(names),
+    }
+
+
+_FULL_CONFIGS = st.builds(
+    _config,
+    inherits=st.sampled_from(["default", "base"]),
+    test_jobs=st.integers(min_value=1, max_value=64),
+    build_jobs=st.integers(min_value=1, max_value=64),
+)
+
+
+@given(_FULL_CONFIGS, _SAFE_NAMES)
+def test_output_data_is_the_expected_presets_for_each_build_type(config, names):
+    compilers = _compilers(names)
+    output_data = make_output_data(config, compilers, PARENT_ENVIRONMENT)
+    assert output_data == _expected_output(config, compilers)
+
+
+def test_parser_sets_sixteen_build_jobs_by_default():
+    config = make_command_line_parser("make-user-presets").parse_args(["in.json"])
+    assert config.build_jobs == 16
+
+
+def test_parser_reads_the_number_of_build_jobs():
+    parser = make_command_line_parser("make-user-presets")
+    config = parser.parse_args(["in.json", "--build-jobs", "4"])
+    assert config.build_jobs == 4
+
+
+@given(st.dictionaries(st.text(), st.integers()))
+def test_stdout_output_is_the_same_text_as_file_output(output_data):
+    with TemporaryDirectory() as directory:
+        file_config = _io_config(Path(directory))
+        write_output_data(file_config, output_data)
+        file_text = file_config.output_file.read_text(encoding="utf-8")
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            write_output_data(_io_config(Path(directory), stdout=True), output_data)
+    assert stdout.getvalue() == file_text + "\n"

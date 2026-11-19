@@ -2,8 +2,6 @@
 """Run CMake user workflow presets."""
 
 import sys
-import json
-import re
 import subprocess
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,12 +14,24 @@ from tools.resource_monitor import (
 )
 from tools.error_policy import add_stack_trace_option, run_tool
 from tools.multi_config import SingleConfigError, cache_is_multi_config
-from tools.user_presets import build_directory, get_configure_step_name
+from tools.user_presets import (
+    add_workflow_selection_options,
+    build_directory,
+    find_workflow,
+    get_configure_step_name,
+    read_user_presets,
+    select_workflow_names,
+)
 
 
 def main(args):
     """Run the tool with the error policy and return the exit code."""
     return run_tool(execute, args)
+
+
+def entry_point():
+    """Run the tool with the command line of the process and exit with its code."""
+    sys.exit(main(sys.argv))
 
 
 def execute(args):
@@ -35,7 +45,7 @@ def process_command_line(args):
     """Process the command line arguments and return the runtime
     configuration"""
 
-    parser = make_command_line_parser(args[0])
+    parser = make_command_line_parser(Path(args[0]).name)
     config = parser.parse_args(args[1:])
     return config
 
@@ -43,27 +53,7 @@ def process_command_line(args):
 def make_command_line_parser(prog):
     """Return the command line parser."""
     parser = ArgumentParser(prog=prog)
-    parser.add_argument(
-        "--input-path",
-        "-i",
-        type=Path,
-        default=Path("CMakeUserPresets.json"),
-        help="The file providing the user presets",
-    )
-    parser.add_argument(
-        "--matching",
-        "-m",
-        type=str,
-        default=None,
-        help="A regular expression matching workflow presets to include",
-    )
-    parser.add_argument(
-        "--exclude",
-        "-e",
-        type=str,
-        default=None,
-        help="A regular expression matching workflow presets to exclude",
-    )
+    add_workflow_selection_options(parser)
     parser.add_argument(
         "--jobs",
         "-j",
@@ -77,18 +67,20 @@ def make_command_line_parser(prog):
 
 def run(config):
     """Run workflows sequentially or in parallel based on config.jobs."""
-    workflow_names = get_workflow_names(config)
-    check = make_build_check(config)
+    user_presets = read_user_presets(config.input_path)
+    workflow_names = select_workflow_names(
+        user_presets, config.matching, config.exclude
+    )
+    check = make_build_check(config, user_presets)
     if config.jobs <= 1:
         run_sequential(workflow_names, check)
     else:
-        groups = group_workflows_by_configure_preset(config.input_path, workflow_names)
+        groups = group_workflows_by_configure_preset(user_presets, workflow_names)
         run_parallel(groups, config.jobs, check)
 
 
-def make_build_check(config):
+def make_build_check(config, user_presets):
     """Return a function that gives a problem message for a workflow, or None."""
-    user_presets = get_user_presets(config)
     source_dir = config.input_path.resolve().parent
 
     def check(workflow_name):
@@ -107,20 +99,13 @@ def single_config_problem(cache_file, workflow_name):
     return SINGLE_CONFIG_ERROR.format(workflow=workflow_name, cache_file=cache_file)
 
 
-def group_workflows_by_configure_preset(input_path, workflow_names):
+def group_workflows_by_configure_preset(user_presets, workflow_names):
     """Group workflow names by their configure preset, preserving order."""
-    with open(input_path, "r", encoding="utf-8") as inp:
-        user_presets = json.load(inp)
-    workflow_map = {wp["name"]: wp for wp in user_presets["workflowPresets"]}
     groups = {}
-    group_order = []
     for name in workflow_names:
-        configure_name = get_configure_step_name(workflow_map[name])
-        if configure_name not in groups:
-            groups[configure_name] = []
-            group_order.append(configure_name)
-        groups[configure_name].append(name)
-    return [groups[key] for key in group_order]
+        configure_name = get_configure_step_name(find_workflow(user_presets, name))
+        groups.setdefault(configure_name, []).append(name)
+    return list(groups.values())
 
 
 def workflow_banner(name):
@@ -190,51 +175,6 @@ def run_workflow_group(group, check):
     return results
 
 
-def get_workflow_names(config):
-    """Return the filtered list of workflow preset names."""
-    all_workflow_names = get_all_workflow_names(config)
-    workflow_names = filter_workflow_names(config, all_workflow_names)
-    return workflow_names
-
-
-def filter_workflow_names(config, all_workflow_names):
-    """Filter workflow names by matching and exclusion patterns."""
-    workflow_names = all_workflow_names
-    if config.matching:
-        workflow_names = [
-            workflow_name
-            for workflow_name in workflow_names
-            if isinstance(re.search(config.matching, workflow_name), re.Match)
-        ]
-    if config.exclude:
-        workflow_names = [
-            workflow_name
-            for workflow_name in workflow_names
-            if not isinstance(re.search(config.exclude, workflow_name), re.Match)
-        ]
-    return workflow_names
-
-
-def get_all_workflow_names(config):
-    """Return all workflow preset names from the user presets file."""
-    workflow_presets = get_workflow_presets(config)
-    workflow_names = [workflow_preset["name"] for workflow_preset in workflow_presets]
-    return workflow_names
-
-
-def get_workflow_presets(config):
-    """Return the workflow presets from the user presets file."""
-    user_presets = get_user_presets(config)
-    return user_presets["workflowPresets"]
-
-
-def get_user_presets(config):
-    """Load and return the user presets from disk."""
-    with open(config.input_path, "r", encoding="utf-8") as inp:
-        user_presets = json.load(inp)
-    return user_presets
-
-
 SINGLE_CONFIG_ERROR = """
 The workflow '{workflow}' used a single-configuration generator.
 See CMAKE_GENERATOR in {cache_file}.
@@ -245,4 +185,4 @@ delete the build directory.
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    entry_point()

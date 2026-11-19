@@ -1,6 +1,9 @@
 """Tell whether CMake presets and caches use a multi-configuration generator."""
 
+from collections.abc import Mapping, Sequence
+
 from tools.errors import UserError
+from tools.user_presets import JsonObject
 
 MULTI_CONFIG_GENERATORS = ("Ninja Multi-Config", "Xcode")
 MULTI_CONFIG_GENERATOR_PREFIXES = ("Visual Studio",)
@@ -11,13 +14,13 @@ class SingleConfigError(UserError):
     """Report a build that does not use a multi-configuration generator."""
 
 
-def find_generator(project_presets, preset_name):
+def find_generator(project_presets: JsonObject, preset_name: str) -> str | None:
     """Return the generator of a configure preset or its parents, or None."""
     presets = {p["name"]: p for p in project_presets.get("configurePresets", [])}
     return _find_generator(presets, preset_name)
 
 
-def is_multi_config_generator(generator):
+def is_multi_config_generator(generator: str | None) -> bool:
     """Return True if the generator builds several configurations."""
     if generator is None:
         return False
@@ -26,12 +29,12 @@ def is_multi_config_generator(generator):
     )
 
 
-def cache_is_multi_config(cache_text):
+def cache_is_multi_config(cache_text: str) -> bool:
     """Return True if the CMakeCache.txt text comes from a multi-config generator."""
     return is_multi_config_generator(_cache_generator(cache_text))
 
 
-def _cache_generator(cache_text):
+def _cache_generator(cache_text: str) -> str | None:
     """Return the generator that CMakeCache.txt records, or None."""
     for line in cache_text.splitlines():
         if line.startswith(GENERATOR_ENTRY):
@@ -39,7 +42,7 @@ def _cache_generator(cache_text):
     return None
 
 
-def _find_generator(presets, preset_name):
+def _find_generator(presets: Mapping[str, JsonObject], preset_name: str) -> str | None:
     """Search the preset, then its parents in order, for a generator."""
     preset = presets.get(preset_name)
     if preset is None:
@@ -53,7 +56,7 @@ def _find_generator(presets, preset_name):
     return None
 
 
-def _parents(preset):
-    """Return the names of the parent presets as a list."""
+def _parents(preset: JsonObject) -> Sequence[str]:
+    """Return the names of the parent presets."""
     inherits = preset.get("inherits", [])
     return [inherits] if isinstance(inherits, str) else inherits

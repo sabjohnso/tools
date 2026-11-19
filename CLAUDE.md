@@ -11,13 +11,13 @@ Five entry points: `make-user-presets`, `run-user-workflows`, `format-cxx-files`
 
 ```
 tools/                  # Main package
-  __init__.py           # Entry points for all five CLI tools
+  __init__.py           # Package docstring; each tool module has its entry_point
   make_user_presets.py  # Generate CMakeUserPresets.json from compiler specs
   run_user_workflows.py # Execute CMake workflow presets
   format_cxx_files.py   # Format C++ sources with clang-format
   clear_cmake_cache.py  # Clear CMakeCache.txt from workflow build directories
-  set_cmake_variable.py # Set CMake variables in workflow build directories
-  resource_monitor.py   # Monitor subprocess CPU and RSS usage
+  set_cmake_variable.py # Set CMake variables with the configure presets
+  resource_monitor.py   # Monitor subprocess CPU and resident set size usage
   multi_config.py       # Detect multi-configuration generators in presets and caches
   error_policy.py       # Error messages, exit codes and the --stack-trace option
   errors.py             # Shared exception types (UserError)
@@ -25,6 +25,7 @@ tools/                  # Main package
   build_documentation.py # Documentation builder (stub)
   compilers.schema.json # JSON Schema for compiler input validation
 test/                   # Tests (pytest)
+  test_package.py       # Package metadata and entry points
   test_make_user_presets.py
   test_format_cxx_files.py
   test_clear_cmake_cache.py
@@ -80,7 +81,7 @@ four preset types:
 - **Configure presets**: one per compiler — sets compiler paths, environment
   variables, and build directory. Shared across all build types for that compiler.
 - **Build presets**: one per compiler × build-type — inherits from `baseBuild`,
-  sets `configuration` (which maps to `CMAKE_BUILD_TYPE`).
+  sets `configuration` (the `--config` value of the multi-configuration build).
 - **Test presets**: one per compiler × build-type — inherits from `baseTest`,
   mirrors build preset configuration.
 - **Workflow presets**: one per compiler × build-type — chains configure → build → test.
@@ -99,17 +100,40 @@ Additionally, `RelWithDebInfo` is overridden via `cacheVariables` to use
 `-O3 -g -DNDEBUG` (optimized with debug info, asserts disabled). This
 overrides the project-level `CMakePresets.json` definition.
 
-The build type controls `CMAKE_BUILD_TYPE` via the `configuration` field on
-build and test presets. Custom build types are supported by setting
-`CMAKE_<LANG>_FLAGS_<BUILDTYPE>` cache variables in configure presets.
+All workflows of one compiler share one build directory, so the inherited
+configure preset must use a multi-configuration generator (for example
+`Ninja Multi-Config`). The `configuration` field of the build and test presets
+selects the build type in that build directory. It does not set
+`CMAKE_BUILD_TYPE`. For a custom build type, the configure presets set the
+`CMAKE_<LANG>_FLAGS_<BUILDTYPE>` cache variables.
 
 ### Shared modules across tools
 
-`clear_cmake_cache.py` and `set_cmake_variable.py` share the same pattern for
-discovering build directories from workflow presets (reading `CMakeUserPresets.json`,
-resolving `${sourceDir}`, deduplicating). Both also share workflow name filtering
-via `--matching`/`--exclude` regex patterns — this pattern is also used by
-`run_user_workflows.py`.
+`user_presets.py` reads `CMakeUserPresets.json` and finds facts about its
+workflows. `run_user_workflows.py`, `clear_cmake_cache.py` and
+`set_cmake_variable.py` use it for these jobs:
+
+- `add_workflow_selection_options` adds `--input-path`/`-i`, `--matching`/`-m`
+  and `--exclude`/`-e` to the parser of each of the three tools.
+- `read_user_presets` reads the presets file.
+- `select_workflow_names` and `filter_workflow_names` select the workflows
+  with the `--matching`/`--exclude` regular expressions (`re.search`).
+- `find_workflow`, `get_configure_step_name` and `find_configure_preset` find
+  the configure preset of a workflow.
+- `build_directory` and `resolve_binary_dir` find the build directory of a
+  workflow and replace `${sourceDir}` with the directory of the presets file.
+- `JsonObject` is the type alias for a JSON object. Define it only in this
+  module.
+
+`clear_cmake_cache.py` finds the build directory of each selected workflow
+and removes duplicates. `set_cmake_variable.py` finds the configure preset of
+each selected workflow and removes duplicates. Then it runs
+`cmake --preset <configure preset> -DVAR=VALUE` in the directory of the
+presets file. `run_user_workflows.py` uses the build directory to read
+`CMakeCache.txt`. With `--jobs`, it groups the workflows by configure preset.
+
+`error_policy.py` gives all five tools the same error messages, exit codes
+and `--stack-trace` option. `errors.py` holds `UserError`.
 
 ## Files not to commit
 

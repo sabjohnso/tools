@@ -136,3 +136,16 @@ def test_cache_with_no_generator_is_not_multi_config():
 def test_cache_agrees_with_the_generator_rule(generator):
     cache = f"CMAKE_GENERATOR:INTERNAL={generator}\n"
     assert cache_is_multi_config(cache) == is_multi_config_generator(generator)
+
+
+@given(st.text())
+def test_generator_rule_agrees_with_an_independent_oracle(generator):
+    expected = generator in ("Ninja Multi-Config", "Xcode") or generator.startswith(
+        "Visual Studio"
+    )
+    assert is_multi_config_generator(generator) == expected
+
+
+@given(st.text())
+def test_every_visual_studio_generator_is_multi_config(suffix):
+    assert is_multi_config_generator("Visual Studio" + suffix)

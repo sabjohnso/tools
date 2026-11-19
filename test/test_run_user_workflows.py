@@ -1,5 +1,6 @@
 """Tests for the run_user_workflows module."""
 
+import inspect
 import os
 import stat
 import subprocess
@@ -18,6 +19,7 @@ from tools.run_user_workflows import (
     run,
     workflow_banner,
 )
+from tools.user_presets import read_user_presets
 
 
 # --- CLI parser ---
@@ -117,20 +119,22 @@ def test_run_sequential_raises_on_failure(mock_monitor, presets_file):
 
 def test_group_workflows_groups_by_configure_preset(presets_file):
     groups = group_workflows_by_configure_preset(
-        presets_file, ["gcc-14", "gcc-14-devel", "clang-18"]
+        read_user_presets(presets_file), ["gcc-14", "gcc-14-devel", "clang-18"]
     )
     assert groups == [["gcc-14", "gcc-14-devel"], ["clang-18"]]
 
 
 def test_group_workflows_preserves_order_within_group(presets_file):
     groups = group_workflows_by_configure_preset(
-        presets_file, ["gcc-14-devel", "gcc-14"]
+        read_user_presets(presets_file), ["gcc-14-devel", "gcc-14"]
     )
     assert groups == [["gcc-14-devel", "gcc-14"]]
 
 
 def test_group_workflows_single_workflow(presets_file):
-    groups = group_workflows_by_configure_preset(presets_file, ["clang-18"])
+    groups = group_workflows_by_configure_preset(
+        read_user_presets(presets_file), ["clang-18"]
+    )
     assert groups == [["clang-18"]]
 
 
@@ -317,3 +321,21 @@ def test_parallel_group_stops_after_a_single_config_workflow(mock_run, presets_f
     main(["run-user-workflows", "-i", str(presets_file), "-j", "2", "-m", "gcc"])
     ran = [c.args[0][3] for c in mock_run.call_args_list]
     assert ran == ["gcc-14"]
+
+
+# --- program name and script ---
+
+
+def test_usage_names_the_program_without_its_directory(capsys):
+    with pytest.raises(SystemExit):
+        main(["/usr/local/bin/run-user-workflows", "--help"])
+    assert capsys.readouterr().out.startswith("usage: run-user-workflows ")
+
+
+def test_module_file_runs_as_a_script():
+    script = Path(inspect.getfile(main))
+    result = subprocess.run(
+        [script, "--help"], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0
+    assert result.stdout.startswith("usage: run_user_workflows.py ")

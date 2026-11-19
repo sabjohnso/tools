@@ -350,15 +350,28 @@ def test_format_bytes_value_is_below_1024_up_to_1023_kb(n):
     assert float(value) < 1024
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: Time and size formats round to an incorrect unit boundary",
-)
 @given(n=st.integers(min_value=0, max_value=1024**3 - 1))
 @example(n=1024**2 - 1)
 def test_format_bytes_value_is_below_1024_below_one_gigabyte(n):
     value, _ = format_bytes(n).split(" ")
     assert float(value) < 1024
+
+
+def test_format_bytes_just_below_one_megabyte_shows_megabytes():
+    assert format_bytes(1024**2 - 1) == "1.0 MB"
+
+
+def test_format_bytes_just_below_one_gigabyte_shows_gigabytes():
+    assert format_bytes(1024**3 - 1) == "1.0 GB"
+
+
+@given(n=boundary_biased_byte_counts)
+def test_format_bytes_shows_a_value_near_the_input_at_a_unit_boundary(n):
+    # The error is half of the last shown digit or less.
+    text = format_bytes(n)
+    unit = BYTE_UNITS[text.split(" ")[1]]
+    last_digit = 1 if unit == 1 else 0.1
+    assert abs(bytes_shown_by(text) - n) <= last_digit / 2 * unit + 1e-6 * n
 
 
 # --- format_duration ---
@@ -401,10 +414,6 @@ def test_format_duration_seconds_field_is_below_60_up_to_59_9_seconds(seconds):
     assert secs < 60
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Review.org: Time and size formats round to an incorrect unit boundary",
-)
 @given(seconds=durations)
 @example(seconds=59.97)
 @example(seconds=3599.97)
@@ -412,6 +421,21 @@ def test_format_duration_minute_and_second_fields_are_below_60(seconds):
     minutes, secs = duration_minutes_and_seconds(format_duration(seconds))
     assert minutes < 60
     assert secs < 60
+
+
+def test_format_duration_just_below_one_minute_shows_one_minute():
+    assert format_duration(59.97) == "1m 0.0s"
+
+
+def test_format_duration_just_below_one_hour_shows_one_hour():
+    assert format_duration(3599.97) == "1h 0m 0.0s"
+
+
+@given(seconds=boundary_biased_durations)
+def test_format_duration_shows_a_value_near_the_input_at_a_unit_boundary(seconds):
+    # The last shown digit is 0.1 s, so the error is 0.05 s or less.
+    shown = duration_total_seconds(format_duration(seconds))
+    assert abs(shown - seconds) <= 0.05 + 1e-9 * seconds
 
 
 # --- format_resource_table ---
@@ -449,14 +473,53 @@ def test_format_resource_table_contains_values():
     assert "12.5s" in table
 
 
-def test_format_resource_table_is_multiline():
+def test_format_resource_table_gives_the_exact_table():
     stats = {
-        "max_cpu": 50.0,
-        "mean_cpu": 25.0,
-        "max_rss": 1024 * 1024,
-        "mean_rss": 1024 * 1024,
-        "elapsed": 5.0,
+        "max_cpu": 95.2,
+        "mean_cpu": 45.1,
+        "max_rss": 512 * 1024 * 1024,
+        "mean_rss": 256 * 1024 * 1024,
+        "elapsed": 12.5,
     }
-    table = format_resource_table(stats)
-    lines = table.strip().split("\n")
-    assert len(lines) >= 5, "Table should have header + separator + 3 data rows"
+    assert format_resource_table(stats) == "\n".join(
+        [
+            "┌──────────┬──────────┬──────────┐",
+            "│ Metric   │      Max │     Mean │",
+            "├──────────┼──────────┼──────────┤",
+            "│ Elapsed  │    12.5s │          │",
+            "│ CPU Load │   95.2 % │   45.1 % │",
+            "│ RSS      │ 512.0 MB │ 256.0 MB │",
+            "└──────────┴──────────┴──────────┘",
+        ]
+    )
+
+
+_CPU_PERCENTS = st.floats(min_value=0.0, max_value=1e5)
+
+
+@given(
+    _CPU_PERCENTS,
+    _CPU_PERCENTS,
+    boundary_biased_byte_counts,
+    boundary_biased_byte_counts,
+    boundary_biased_durations,
+)
+def test_format_resource_table_lines_have_one_width_and_aligned_columns(
+    max_cpu, mean_cpu, max_rss, mean_rss, elapsed
+):
+    stats = {
+        "max_cpu": max_cpu,
+        "mean_cpu": mean_cpu,
+        "max_rss": max_rss,
+        "mean_rss": mean_rss,
+        "elapsed": elapsed,
+    }
+    lines = format_resource_table(stats).split("\n")
+    assert len(lines) == 7
+    assert len({len(line) for line in lines}) == 1
+    columns = [
+        [index for index, char in enumerate(line) if char in "│┌┬┐├┼┤└┴┘"]
+        for line in lines
+    ]
+    assert all(positions == columns[0] for positions in columns)
+    assert len(columns[0]) == 4

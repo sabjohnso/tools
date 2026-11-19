@@ -12,6 +12,7 @@ import subprocess
 import sys
 import traceback
 from argparse import ArgumentParser
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from tools.errors import UserError
@@ -38,7 +39,11 @@ EXPECTED_ERRORS = (
 )
 
 
-def run_tool(execute, args, environ=None):
+def run_tool(
+    execute: Callable[[Sequence[str]], int],
+    args: Sequence[str],
+    environ: Mapping[str, str] | None = None,
+) -> int:
     """Run execute(args) with the error policy and return the exit code."""
     show_stack_trace = stack_trace_requested(
         args, os.environ if environ is None else environ
@@ -60,7 +65,7 @@ def run_tool(execute, args, environ=None):
         return EXIT_SOFTWARE
 
 
-def add_stack_trace_option(parser):
+def add_stack_trace_option(parser: ArgumentParser) -> None:
     """Add the --stack-trace option to the command line parser of a tool."""
     parser.add_argument(
         STACK_TRACE_OPTION,
@@ -69,7 +74,7 @@ def add_stack_trace_option(parser):
     )
 
 
-def stack_trace_requested(args, environ):
+def stack_trace_requested(args: Sequence[str], environ: Mapping[str, str]) -> bool:
     """Return True if the command line or the environment asks for a trace."""
     # Only the exact option counts, so that an abbreviation of another option,
     # for example --s for --source-tree, does not turn on stack traces.
@@ -80,14 +85,16 @@ def stack_trace_requested(args, environ):
     return known.stack_trace or variable in TRUE_VALUES
 
 
-def describe(error):
+def describe(error: BaseException) -> str:
     """Return the message for an expected error."""
     if isinstance(error, KeyError):
         return "missing entry: " + ", ".join(str(argument) for argument in error.args)
     return str(error).strip()
 
 
-def report(program, message, error, show_stack_trace):
+def report(
+    program: str, message: str, error: BaseException, show_stack_trace: bool
+) -> None:
     """Write the message, and the stack trace of error if requested, to stderr."""
     if show_stack_trace:
         traceback.print_exception(error, file=sys.stderr)

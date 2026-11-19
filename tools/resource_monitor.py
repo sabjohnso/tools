@@ -8,7 +8,7 @@ import psutil
 
 
 def monitor_subprocess(cmd):
-    """Run cmd and sample CPU/RSS for the process tree, return (returncode, samples, elapsed)."""
+    """Run cmd, sample its process tree, and return (returncode, samples, elapsed)."""
     start = time.monotonic()
     process = subprocess.Popen(cmd)
     samples = []
@@ -115,44 +115,54 @@ def format_resource_table(stats):
     val_width = max(
         len(max_rss), len(mean_rss), len(max_cpu), len(mean_cpu), len(elapsed), 4
     )
-    header_metric = "Metric"
-    header_max = "Max".rjust(val_width)
-    header_mean = "Mean".rjust(val_width)
-    metric_width = max(len(header_metric), len("CPU Load"), len("Elapsed"), len("RSS"))
+    metric_width = max(len("Metric"), len("CPU Load"), len("Elapsed"), len("RSS"))
     col = val_width + 2
-    sep = f"├{'─' * (metric_width + 2)}┼{'─' * col}┼{'─' * col}┤"
-    top = f"┌{'─' * (metric_width + 2)}┬{'─' * col}┬{'─' * col}┐"
-    bot = f"└{'─' * (metric_width + 2)}┴{'─' * col}┴{'─' * col}┘"
-    blank = " " * val_width
+
+    def row(metric, first, second):
+        cells = [
+            f"{metric:<{metric_width}}",
+            f"{first:>{val_width}}",
+            f"{second:>{val_width}}",
+        ]
+        return "│ " + " │ ".join(cells) + " │"
+
+    def rule(left, middle, right):
+        widths = [metric_width + 2, col, col]
+        return left + middle.join("─" * width for width in widths) + right
+
     lines = [
-        top,
-        f"│ {header_metric:<{metric_width}} │ {header_max} │ {header_mean} │",
-        sep,
-        f"│ {'Elapsed':<{metric_width}} │ {elapsed:>{val_width}} │ {blank} │",
-        f"│ {'CPU Load':<{metric_width}} │ {max_cpu:>{val_width}} │ {mean_cpu:>{val_width}} │",
-        f"│ {'RSS':<{metric_width}} │ {max_rss:>{val_width}} │ {mean_rss:>{val_width}} │",
-        bot,
+        rule("┌", "┬", "┐"),
+        row("Metric", "Max", "Mean"),
+        rule("├", "┼", "┤"),
+        row("Elapsed", elapsed, ""),
+        row("CPU Load", max_cpu, mean_cpu),
+        row("RSS", max_rss, mean_rss),
+        rule("└", "┴", "┘"),
     ]
     return "\n".join(lines)
 
 
+TENTHS_PER_MINUTE = 600
+
+
 def format_duration(seconds):
     """Return a human-readable duration string."""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, secs = divmod(seconds, 60)
+    tenths = round(seconds * 10)
+    if tenths < TENTHS_PER_MINUTE:
+        return f"{tenths / 10:.1f}s"
+    minutes, tenths = divmod(tenths, TENTHS_PER_MINUTE)
     if minutes < 60:
-        return f"{int(minutes)}m {secs:.1f}s"
-    hours, minutes = divmod(int(minutes), 60)
-    return f"{hours}h {int(minutes)}m {secs:.1f}s"
+        return f"{minutes}m {tenths / 10:.1f}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {tenths / 10:.1f}s"
 
 
 def format_bytes(n):
     """Return a human-readable byte string."""
-    if n >= 1024 * 1024 * 1024:
-        return f"{n / (1024 * 1024 * 1024):.1f} GB"
-    if n >= 1024 * 1024:
-        return f"{n / (1024 * 1024):.1f} MB"
-    if n >= 1024:
-        return f"{n / 1024:.1f} KB"
-    return f"{n} B"
+    if n < 1024:
+        return f"{n} B"
+    for unit_name, unit_size in (("KB", 1024), ("MB", 1024**2)):
+        shown = round(n / unit_size, 1)
+        if shown < 1024:
+            return f"{shown:.1f} {unit_name}"
+    return f"{n / 1024**3:.1f} GB"

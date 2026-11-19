@@ -1,6 +1,7 @@
 """Tests for the error_policy module."""
 
 import contextlib
+import importlib
 import io
 import json
 import re
@@ -11,7 +12,6 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-import tools
 from tools.error_policy import (
     EXIT_ERROR,
     EXIT_INTERRUPTED,
@@ -252,7 +252,7 @@ def _run_entry_point(name, argv, monkeypatch):
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.delenv(STACK_TRACE_VARIABLE, raising=False)
     with pytest.raises(SystemExit) as exit_info:
-        getattr(tools, name)()
+        importlib.import_module(f"tools.{name}").entry_point()
     return exit_info.value.code
 
 
@@ -293,7 +293,7 @@ def test_environment_of_the_process_shows_the_stack_trace(
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setenv(STACK_TRACE_VARIABLE, "1")
     with pytest.raises(SystemExit):
-        tools.clear_cmake_cache()
+        importlib.import_module("tools.clear_cmake_cache").entry_point()
     assert "Traceback" in capsys.readouterr().err
 
 

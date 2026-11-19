@@ -1,6 +1,6 @@
 [project]
 name = "tools"
-version = "0.5.1"
+version = "0.6.0"
 description = "Dev tools for a variety of libraries"
 authors = [
     {name = "Samuel B. Johnson",email = "samuel.johnson.dev@gmail.com"}
@@ -33,11 +33,11 @@ packages=[{include = "tools"}]
 
 
 [project.scripts]
-make-user-presets = "tools:make_user_presets"
-run-user-workflows = "tools:run_user_workflows"
-format-cxx-files = "tools:format_cxx_files"
-clear-cmake-cache = "tools:clear_cmake_cache"
-set-cmake-variable = "tools:set_cmake_variable"
+make-user-presets = "tools.make_user_presets:entry_point"
+run-user-workflows = "tools.run_user_workflows:entry_point"
+format-cxx-files = "tools.format_cxx_files:entry_point"
+clear-cmake-cache = "tools.clear_cmake_cache:entry_point"
+set-cmake-variable = "tools.set_cmake_variable:entry_point"
 
 
 [build-system]
@@ -50,6 +50,7 @@ pytest = "^8.4.1"
 ruff = "^0.12.3"
 hypothesis = "^6.100"
 pytest-xdist = "^3.6"
+types-psutil = "^7.2.2.20261111"
 
 
 [tool.ruff]

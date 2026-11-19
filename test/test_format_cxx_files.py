@@ -27,9 +27,16 @@ BAD_SOURCE = "int  main( ){return 0;}\n"
 OTHER_EXTENSIONS = [".h", ".c", ".txt", ".py", ".cmake"]
 
 
-def test_parser_prog_is_full_program_name():
+def test_parser_prog_is_the_given_program_name():
     parser = make_command_line_parser("format-cxx-files")
     assert parser.prog == "format-cxx-files"
+
+
+def test_usage_shows_the_program_name_without_its_directory(capsys):
+    with pytest.raises(SystemExit):
+        main(["/usr/local/bin/format-cxx-files", "--help"])
+    usage = capsys.readouterr().out.splitlines()[0]
+    assert usage.startswith("usage: format-cxx-files ")
 
 
 def test_clang_format_defaults_to_clang_format():

@@ -22,6 +22,11 @@ def main(args):
     return run_tool(execute, args)
 
 
+def entry_point():
+    """Run the tool with the command line of the process and exit with its code."""
+    sys.exit(main(sys.argv))
+
+
 def execute(args):
     """Run the formatter and return 0."""
     config = process_command_line(args)
@@ -31,7 +36,7 @@ def execute(args):
 
 def process_command_line(args):
     """Process the command line arguments and return the runtime configuration."""
-    parser = make_command_line_parser(args[0])
+    parser = make_command_line_parser(Path(args[0]).name)
     config = parser.parse_args(args[1:])
     return config
 
@@ -98,4 +103,4 @@ def is_build_directory(path):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    entry_point()

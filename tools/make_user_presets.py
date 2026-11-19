@@ -8,6 +8,7 @@ import importlib.resources
 from collections import Counter
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import NamedTuple
 
 import jsonschema
 
@@ -23,6 +24,11 @@ from tools.multi_config import (
 def main(args):
     """Run the tool with the error policy and return the exit code."""
     return run_tool(execute, args)
+
+
+def entry_point():
+    """Run the tool with the command line of the process and exit with its code."""
+    sys.exit(main(sys.argv))
 
 
 def execute(args):
@@ -60,6 +66,13 @@ def make_command_line_parser(prog):
         help="""Overwrite the output file if it exists.
         Otherwise, it is an error if the output file
         already exists""",
+    )
+
+    parser.add_argument(
+        "--build-jobs",
+        type=int,
+        default=16,
+        help="The number of jobs to use when building (default: 16)",
     )
 
     parser.add_argument(
@@ -170,7 +183,7 @@ def read_input_data(config):
 def write_output_data(config, output_data):
     """Write the output data to a file or stdout."""
     if config.stdout:
-        print(json.dumps(output_data))
+        print(json.dumps(output_data, indent=4))
     else:
         with open(config.output_file, "w", encoding="utf-8") as out:
             json.dump(output_data, out, indent=4)
@@ -200,62 +213,42 @@ def make_configure_presets(config, input_data, parent_environment):
 
 def make_build_presets(config, input_data):
     """Return build presets for all compilers and build types."""
-    return (
-        [{"name": "baseBuild", "jobs": 16, "configurePreset": config.inherits}]
-        + [
-            make_build_preset(compiler["name"], "", "Release")
-            for compiler in input_data
-        ]
-        + [
-            make_build_preset(compiler["name"], "-devel", "RelWithAsserts")
-            for compiler in input_data
-        ]
-        + [
-            make_build_preset(compiler["name"], "-debug", "Debug")
-            for compiler in input_data
-        ]
-    )
-
-
-def make_build_preset(workflow_name, suffix, configuration):
-    """Return a single build preset for the given name and configuration."""
-    return {
-        "name": workflow_name + suffix,
-        "inherits": "baseBuild",
-        "configuration": configuration,
-        "configurePreset": workflow_name,
+    base = {
+        "name": "baseBuild",
+        "hidden": True,
+        "jobs": config.build_jobs,
+        "configurePreset": config.inherits,
     }
+    return [base] + make_step_presets("baseBuild", input_data)
 
 
 def make_test_presets(config, input_data):
     """Return test presets for all compilers and build types."""
-    return (
-        [
-            {
-                "name": "baseTest",
-                "output": {"outputOnFailure": True},
-                "configurePreset": config.inherits,
-                "execution": {"jobs": config.test_jobs},
-            }
-        ]
-        + [make_test_preset(compiler["name"], "", "Release") for compiler in input_data]
-        + [
-            make_test_preset(compiler["name"], "-devel", "RelWithAsserts")
-            for compiler in input_data
-        ]
-        + [
-            make_test_preset(compiler["name"], "-debug", "Debug")
-            for compiler in input_data
-        ]
-    )
+    base = {
+        "name": "baseTest",
+        "hidden": True,
+        "output": {"outputOnFailure": True},
+        "configurePreset": config.inherits,
+        "execution": {"jobs": config.test_jobs},
+    }
+    return [base] + make_step_presets("baseTest", input_data)
 
 
-def make_test_preset(workflow_name, suffix, configuration):
-    """Return a single test preset for the given name and configuration."""
+def make_step_presets(base_name, input_data):
+    """Return build or test presets for each build type, then each compiler."""
+    return [
+        make_step_preset(compiler["name"], build_type, base_name)
+        for build_type in BUILD_TYPES
+        for compiler in input_data
+    ]
+
+
+def make_step_preset(workflow_name, build_type, base_name):
+    """Return a build or test preset for one compiler and one build type."""
     return {
-        "name": workflow_name + suffix,
-        "inherits": "baseTest",
-        "configuration": configuration,
+        "name": workflow_name + build_type.suffix,
+        "inherits": base_name,
+        "configuration": build_type.configuration,
         "configurePreset": workflow_name,
     }
 
@@ -309,21 +302,25 @@ def search_path(directories, variable, parent_environment):
 
 def custom_build_type_flags():
     """Return cache variables defining compiler flags for custom build types."""
+    flags = FLAG_OVERRIDES | {
+        build_type.configuration: build_type.flags
+        for build_type in BUILD_TYPES
+        if build_type.flags is not None
+    }
     return {
-        "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
-        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O3 -g -DNDEBUG",
-        "CMAKE_C_FLAGS_RELWITHASSERTS": "-O3",
-        "CMAKE_CXX_FLAGS_RELWITHASSERTS": "-O3",
+        f"CMAKE_{language}_FLAGS_{configuration.upper()}": value
+        for configuration, value in flags.items()
+        for language in ["C", "CXX"]
     }
 
 
 def make_workflow_presets(config, input_data):
     """Return workflow presets for all compilers and build types."""
-    return (
-        [make_workflow_preset(compiler["name"], "") for compiler in input_data]
-        + [make_workflow_preset(compiler["name"], "-devel") for compiler in input_data]
-        + [make_workflow_preset(compiler["name"], "-debug") for compiler in input_data]
-    )
+    return [
+        make_workflow_preset(compiler["name"], build_type.suffix)
+        for build_type in BUILD_TYPES
+        for compiler in input_data
+    ]
 
 
 def make_workflow_preset(workflow_name, suffix):
@@ -342,6 +339,26 @@ def binary_directory(compiler):
     """Return the build directory path for the given compiler."""
     return "${sourceDir}/build-" + compiler["name"]
 
+
+class BuildType(NamedTuple):
+    """A build type: workflow name suffix, CMake build type and compiler flags."""
+
+    suffix: str
+    configuration: str
+    flags: str | None
+
+
+# The build types of each compiler, in the order of the output. A build type
+# with flags is a custom build type: its configure preset sets its flags.
+BUILD_TYPES = [
+    BuildType("", "Release", None),
+    BuildType("-devel", "RelWithAsserts", "-O3"),
+    BuildType("-debug", "Debug", None),
+]
+
+# The configure presets replace the flags of these build types of the
+# project. No workflow uses these build types.
+FLAG_OVERRIDES = {"RelWithDebInfo": "-O3 -g -DNDEBUG"}
 
 COMPILER_SEARCH_DIRECTORIES = {
     "PATH": ["bin"],
@@ -377,4 +394,4 @@ select a different preset with --inherits.
 """
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    entry_point()
