@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tools.error_policy import add_stack_trace_option, run_tool
 
-CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".C", ".hpp", ".hxx", ".ixx"]
+CXX_EXTENSIONS = [".cc", ".cpp", ".cxx", ".C", ".h", ".hpp", ".hxx", ".ixx"]
 
 # The number of files for one clang-format process. It keeps the command
 # line below the limit of the operating system for a large source tree.

@@ -24,7 +24,7 @@ needs_clang_format = pytest.mark.skipif(
 )
 
 BAD_SOURCE = "int  main( ){return 0;}\n"
-OTHER_EXTENSIONS = [".h", ".c", ".txt", ".py", ".cmake"]
+OTHER_EXTENSIONS = [".c", ".txt", ".py", ".cmake"]
 
 
 def test_parser_prog_is_the_given_program_name():
@@ -223,3 +223,8 @@ def _write(path, text):
 
 def _touch(path):
     return _write(path, "")
+
+
+def test_get_source_files_finds_header_files_with_the_h_extension(tmp_path):
+    header = _touch(tmp_path / "include" / "widget.h")
+    assert get_source_files(tmp_path) == [header]

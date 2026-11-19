@@ -193,8 +193,8 @@ format-cxx-files --source-tree src/       # Format a specific tree
 format-cxx-files --clang-format clang-format-18
 ```
 
-The tool finds all C++ source files (`.cc`, `.cpp`, `.cxx`, `.C`, `.hpp`,
-`.hxx`, `.ixx`) and formats them with clang-format. It skips each CMake
+The tool finds all C++ source files (`.cc`, `.cpp`, `.cxx`, `.C`, `.h`,
+`.hpp`, `.hxx`, `.ixx`) and formats them with clang-format. It skips each CMake
 build directory, which it identifies by its `CMakeCache.txt`. Thus the
 sources that `FetchContent` downloads stay unchanged. It runs clang-format
 on batches of files. It returns 0 when it finds no files.
